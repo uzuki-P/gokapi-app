@@ -8,6 +8,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import android.content.Intent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
@@ -34,8 +36,9 @@ private const val SLIDE_DIVISOR = 4
 private const val DRIFT_DIVISOR = 10
 
 @Composable
-fun GokapiApp(container: AppContainer) {
+fun GokapiApp(container: AppContainer, incomingIntent: Intent? = null, consumeIntent: () -> Unit = {}) {
     val navController = rememberNavController()
+    LaunchedEffect(incomingIntent) { if (incomingIntent != null) navController.popBackStack(Routes.HOME, false) }
     val motion = MaterialTheme.motionScheme
     val spatial = motion.defaultSpatialSpec<IntOffset>()
     val fastEffects = motion.fastEffectsSpec<Float>()
@@ -58,7 +61,7 @@ fun GokapiApp(container: AppContainer) {
         },
     ) {
         composable(Routes.HOME) {
-            HomeScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } })
+            HomeScreen(container = container, incomingIntent = incomingIntent, consumeIntent = consumeIntent, onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(container = container, onBack = { navController.popBackStack() })

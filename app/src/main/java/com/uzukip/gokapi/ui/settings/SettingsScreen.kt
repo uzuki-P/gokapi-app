@@ -67,7 +67,7 @@ import com.uzukip.gokapi.ui.components.segmentCorners
 import com.uzukip.gokapi.ui.theme.PRESET_SEEDS
 import kotlinx.coroutines.launch
 
-/** Settings: Appearance, Theme color, Haptics. */
+/** Server, appearance, theme color, and haptics settings. */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
@@ -94,6 +94,8 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
+            ServerSettings(container)
+
             GroupLabel("Appearance")
             ConnectedChoices(
                 options = listOf(
@@ -160,6 +162,8 @@ fun SettingsScreen(
                 )
             }
 
+            TransferSettings(container, settings)
+
             Text(
                 "gokapi-android v${com.uzukip.gokapi.BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelMedium,
@@ -185,11 +189,11 @@ fun SettingsScreen(
     }
 }
 
-private data class Choice<T>(val value: T, val label: String, val glyph: String)
+internal data class Choice<T>(val value: T, val label: String, val glyph: String)
 
 /** Full-width connected toggle buttons; the checked one rounds fully. */
 @Composable
-private fun <T> ConnectedChoices(
+internal fun <T> ConnectedChoices(
     options: List<Choice<T>>,
     selected: T,
     onSelect: (T) -> Unit,

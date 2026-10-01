@@ -1,5 +1,14 @@
 package com.uzukip.gokapi
 
+import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.runtime.mutableStateOf
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import com.uzukip.gokapi.platform.MainActivityState
+import com.uzukip.gokapi.platform.AppMessages
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,11 +27,40 @@ import com.uzukip.gokapi.ui.theme.GokapiTheme
 val LocalVibrate = staticCompositionLocalOf { {} }
 
 class MainActivity : ComponentActivity() {
+    private val incomingIntent = mutableStateOf<Intent?>(null)
+    private fun acceptIntent(intent: Intent) {
+        if (intent.data != null || intent.hasExtra("file_id")) incomingIntent.value = Intent(intent)
+        intent.getStringExtra("copy_link")?.let { link ->
+            getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", link))
+            AppMessages.message.value = "Link copied"
+            intent.removeExtra("copy_link")
+        }
+    }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptIntent(intent) }
+    override fun onResume() {
+        super.onResume()
+        MainActivityState.foreground = true
+        val container = (application as GokapiApplication).container
+        lifecycleScope.launch {
+            container.settings.takeUploadLink()?.let { link ->
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", link))
+                AppMessages.message.value = "Upload link copied"
+            }
+            if (container.settings.settings.first().notificationMode == com.uzukip.gokapi.data.settings.NotificationMode.INSTANT) {
+                org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(this@MainActivity)?.let {
+                    org.unifiedpush.android.connector.UnifiedPush.register(this@MainActivity)
+                }
+            }
+        }
+    }
+    override fun onPause() { MainActivityState.foreground = false; super.onPause() }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestPeakRefreshRate()
+        if (savedInstanceState == null) acceptIntent(intent)
         val container = (application as GokapiApplication).container
         setContent {
             val settings by container.settings.settings
@@ -31,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 LocalVibrate provides { container.haptics.vibrate(settings.vibrationMs) },
             ) {
                 GokapiTheme(settings = settings) {
-                    GokapiApp(container)
+                    GokapiApp(container, incomingIntent.value) { incomingIntent.value = null }
                 }
             }
         }

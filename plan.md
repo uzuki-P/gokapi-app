@@ -13,9 +13,24 @@ with:
 The app also uploads files from the phone and gets a push notification when a
 new file lands.
 
-Status: M1 is partly done. The project builds, and the home screen opens a
-settings screen with the Appearance, Theme color, and Haptics groups. Server
-setup and credential storage are still to do.
+Status: M1 to M7 are implemented. The app has server setup, file browsing,
+downloads, APK installation, link handling, notifications, background uploads,
+and file actions. The private ntfy companion is running, with a named HTTPS
+route and separate reader and publisher accounts. The files helper has an
+optional notification hook. Real hosts and credentials stay in ignored local
+files.
+
+Validation passed with `just check`, including lint and 18 JVM tests per
+flavor, plus six API 36 emulator tests and four notification-hook tests.
+Both release APKs also build with code and resource shrinking enabled.
+The 0.1.1 fix preserves the generated Room database constructor that R8 removed
+in 0.1.0. `scripts/check-release-startup.py` checks two cold launches of each
+optimized flavor on the emulator, beyond debug instrumentation coverage.
+The user confirmed listing, downloading, and APK installation on the phone.
+Version 0.1.2 accepts the lowercase chunk success field returned by Gokapi 2.2.4,
+which differs from its OpenAPI schema. Tests use the actual response spelling.
+Upload verification against the live server needs the rebuilt phone app.
+See [README.md](README.md) for server and notification setup.
 
 ## Base: copy spendr-kt, keep the shell, drop the domain
 
@@ -85,19 +100,23 @@ Checked against the running instance's OpenAPI spec
 - Auth is an `apikey` header. Each key has its own permissions:
   `PERM_VIEW`, `PERM_UPLOAD`, `PERM_EDIT`, `PERM_DELETE`, `PERM_REPLACE`,
   `PERM_MANAGE_FILE_REQUESTS`, `PERM_MANAGE_LOGS`, `PERM_MANAGE_USERS`,
-  `PERM_API_MOD`.
+  `PERM_API_MOD`, `PERM_DOWNLOAD`.
 - `GET /api/files/list` returns all unexpired files (or `null` when empty).
   It needs VIEW.
 - `GET /api/files/list/{id}` returns one file's metadata.
 - `GET /api/files/download/{id}` downloads the file without counting it as a
   download by default. It can also return a pre-signed URL that is valid for
   30 seconds. The spec says it needs a DOWNLOAD permission that the
-  permission enum doesn't list. Check this against a real key in M2.
+  original OpenAPI permission enum doesn't list. The v2.2.4 source defines
+  `PERM_DOWNLOAD` and requires it for this route. Grant it to the android key.
+  See [ApiKey.go](https://github.com/Forceu/Gokapi/blob/v2.2.4/internal/models/ApiKey.go)
+  and [routing.go](https://github.com/Forceu/Gokapi/blob/v2.2.4/internal/webserver/api/routing.go).
 - `POST /api/files/add` is a single-request upload (what `bin/share` uses).
 - `POST /api/chunk/add` + `POST /api/chunk/complete` is chunked upload, with
   a 5 MB minimum chunk size except for the last chunk. `complete` takes
   `uuid`, `filename`, `filesize`, `contenttype`, `allowedDownloads`,
-  `expiryDays`, `password`, `nonblocking`.
+  `expiryDays`, `password`, `nonblocking`. Non-ASCII filenames use the API
+  header's documented `base64:` encoding.
 - `GET /api/info/config` returns server upload limits (needs UPLOAD).
 - `DELETE /api/files/delete` deletes a file (needs DELETE).
 - File fields the UI uses: `Id`, `Name`, `Size`, `SizeBytes`, `ContentType`,
@@ -116,12 +135,21 @@ deep-link host comes from `local.properties` (see M4).
 
 ## Milestones
 
+All slices below have code. JVM checks cover both flavors. Emulator tests cover
+file search, delete confirmation, links and cross-server rejection, Keystore
+credentials, MediaStore downloads, background content URI uploads, and real
+PackageInstaller sessions. The installer test verifies first-install
+confirmation, signature mismatch rejection, and a later silent update using
+its own fixture package. Live phone checks in the acceptance criteria remain
+pending.
+
+
 Each milestone is a vertical slice you can install and use. Validate both
 flavors with `just check` before closing one.
 
 | # | Milestone | Blocked by |
 | --- | --- | --- |
-| M1 | Skeleton: theme, settings (Appearance, Theme color, Haptics), server setup | none (partly done: server setup left) |
+| M1 | Skeleton: theme, settings (Appearance, Theme color, Haptics), server setup | none (implemented; phone verification deferred) |
 | M2 | File list + open/download | M1 |
 | M3 | APK install via PackageInstaller, silent reinstall | M2 |
 | M4 | Open agent links in the app | M2 |
@@ -150,7 +178,7 @@ flavors with `just check` before closing one.
   DataStore. Don't use `EncryptedSharedPreferences` (deprecated). Exclude the
   file from backup with `dataExtractionRules`.
 - Key: create a dedicated `android` key in the Gokapi admin UI. It starts
-  with VIEW (+ DOWNLOAD if M2 needs it). Add UPLOAD in M6 and DELETE in M7.
+  with VIEW and DOWNLOAD. Add UPLOAD for M6 and DELETE for M7.
   Never reuse the agent key from `~/docker/files/secrets/api-key`.
 
 Done when: both flavors install side by side, all three spendr-kt settings
@@ -187,7 +215,8 @@ Tailscale.
   cached APK into the session, then commit with a `PendingIntent` that
   receives the status. Handle `STATUS_PENDING_USER_ACTION` by launching the
   confirm intent.
-- On API 31+, call `setRequireUserAction(USER_ACTION_NOT_REQUIRED)`. Android
+- Declare `UPDATE_PACKAGES_WITHOUT_USER_ACTION`. On API 31+, call
+  `setRequireUserAction(USER_ACTION_NOT_REQUIRED)`. Android
   skips the confirm dialog when this app is the installer of record for an
   already-installed package. Starting with Android 14, update ownership also
   matters. Effect: the first install of `spendr-kt` dev asks for confirmation,
@@ -208,9 +237,9 @@ list in one tap, and the second build installs with no dialog.
 ### M4: Open agent links in the app
 
 - Intent filter for `https://<files host>/d` with `BROWSABLE`. The host comes
-  from `local.properties` (`gokapi.filesHost=files.…`) through a manifest
-  placeholder, so the domain stays out of git. If the property is missing,
-  the build should skip the filter.
+  from `local.properties` (`gokapi.filesHost=files.…`). Gradle generates the
+  manifest with `/d` and `/h/` filters, so the domain stays out of git. If the
+  property is missing, the build omits those filters.
 - Without App Links verification, Android 12+ won't route the link to the
   app until the user approves it under the app's "Open by default" → "Add
   links". The setup screen should detect this with
@@ -229,7 +258,10 @@ list in one tap, and the second build installs with no dialog.
 Gokapi has no webhooks, so the notification has to come from whatever does
 the upload. Today that's `bin/share`.
 
-Recommended design: self-hosted ntfy + UnifiedPush.
+Implemented design: self-hosted ntfy and UnifiedPush, plus WorkManager polling.
+The companion is in `~/dotconfig/_home/docker/ntfy`, pinned to ntfy v2.28.0,
+and binds host loopback port 53843 to unprivileged container port 8080. Its
+README and `bootstrap-auth` command describe the private account setup.
 
 - **Server (dotconfig change).** Add an ntfy Quadlet next to Gokapi
   (`~/dotconfig/_home/docker/ntfy/`), bound to loopback and routed through
@@ -237,14 +269,19 @@ Recommended design: self-hosted ntfy + UnifiedPush.
   pinned image, `justfile`, README, and a `just route` recipe. Use access
   control with a write token for `bin/share` and a read token for the phone.
 - **Publisher.** After a successful upload, `bin/share` POSTs to the topic
-  (for example `gokapi-uploads`) with a JSON body containing `Id`, `Name`,
-  `Size`, `ContentType`, and the download URL. A failed publish must not
-  fail the upload. Gate it on `NTFY_URL` being set in `.env` so the helper
-  still works without ntfy.
+  with a JSON body containing `Id`, `Name`, `Size`, `ContentType`, and the
+  download URL. `NTFY_ENDPOINTS_FILE` lists UnifiedPush device endpoints, one
+  private HTTPS URL per line. Each receives the payload with `X-UnifiedPush: 1`.
+  Optional `NTFY_URL` also publishes to a regular ntfy topic. `NTFY_TOKEN_FILE`
+  supplies the publisher token. No notification configuration means no publish.
+  A failed publish does not fail the upload.
 - **Phone.** Install the ntfy Android app as the UnifiedPush distributor and
   point it at the self-hosted server. It keeps the connection open, so this
   app doesn't need a foreground service. This app uses
-  `org.unifiedpush.android:connector`, registers for the topic, and turns
+  `org.unifiedpush.android:connector` 3.3.5 and its PushService API. Registration
+  creates a device-specific endpoint, which the settings screen can copy to
+  the server's endpoint file. A fixed-topic subscription does not register
+  Gokapi with UnifiedPush. The app turns
   each message into a notification:
   - title: file name; text: size + "from agent"
   - tap: open the M4 bottom sheet for that `Id`
@@ -261,8 +298,8 @@ Recommended design: self-hosted ntfy + UnifiedPush.
 Not FCM. It would need Firebase, a Google project, and a public endpoint,
 which goes against keeping this tailnet-only.
 
-Open question: should uploads from the phone (M6) also publish? Probably
-not, since you already know about them.
+Phone uploads do not publish to ntfy. Their own completion notifications report
+the result.
 
 ### M6: Upload from the phone
 
@@ -314,10 +351,9 @@ above. Update both together if the package name changes.
 
 ## Risks and open questions
 
-- **DOWNLOAD permission.** The OpenAPI spec mentions it, but the enum doesn't
-  list it. If `/api/files/download/{id}` rejects the key, fall back to the
-  public `/d?id=` flow: fetch the page and follow its download URL. Confirm
-  this in M2 before building on either path.
+- **DOWNLOAD permission.** Confirmed in the pinned server's source despite
+  the incomplete OpenAPI enum. Downloads use the API directly and explain
+  denied access. Grant DOWNLOAD to the dedicated android key.
 - **Silent reinstall depends on installer of record.** APKs already
   installed through the browser are owned by the package installer, so the
   first install through this app still prompts. On Android 14+, an app with

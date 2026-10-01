@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.uzukip.gokapi.installfixture" android:versionCode="FIXTURE_VERSION" android:versionName="0.0.FIXTURE_VERSION">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+    <application android:label="Gokapi install fixture" android:hasCode="false" />
+</manifest>
