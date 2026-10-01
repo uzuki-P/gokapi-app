@@ -1,0 +1,1 @@
+# gokapi-android ProGuard rules.
