@@ -1,17 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material Design Icons "cloud-download" (Apache 2.0), scaled into the adaptive-icon safe zone. -->
+<!-- A file with an upload arrow, stacked on a second file. Source art is icon.png / icon.jpg in the repo root. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <group
-        android:scaleX="2.25"
-        android:scaleY="2.25"
-        android:translateX="27"
-        android:translateY="27">
+        android:pivotX="54"
+        android:pivotY="55"
+        android:scaleX="0.9"
+        android:scaleY="0.9">
+        <group
+            android:pivotX="54"
+            android:pivotY="56"
+            android:rotation="-12">
+            <path
+                android:fillColor="#4DB6BE"
+                android:pathData="M37,30 H65 A5,5 0 0,1 70,35 V73 A5,5 0 0,1 65,78 H37 A5,5 0 0,1 32,73 V35 A5,5 0 0,1 37,30 Z" />
+        </group>
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M17,13L12,18L7,13H10V9H14V13M19.35,10.03C18.67,6.59 15.64,4 12,4C9.11,4 6.6,5.64 5.35,8.03C2.34,8.36 0,10.9 0,14A6,6 0 0,0 6,20H19A5,5 0 0,0 24,15C24,12.36 21.95,10.22 19.35,10.03Z" />
+            android:pathData="M43,32 H63 L76,45 V75 A5,5 0 0,1 71,80 H43 A5,5 0 0,1 38,75 V37 A5,5 0 0,1 43,32 Z" />
+        <path
+            android:fillColor="#FFC857"
+            android:pathData="M63,32 V41 A4,4 0 0,0 67,45 H76 Z" />
+        <path
+            android:fillColor="#00535B"
+            android:pathData="M57,49 L67.5,59.5 L63.5,63.5 L60,60 V71 A2,2 0 0,1 58,73 H56 A2,2 0 0,1 54,71 V60 L50.5,63.5 L46.5,59.5 Z" />
     </group>
 </vector>
