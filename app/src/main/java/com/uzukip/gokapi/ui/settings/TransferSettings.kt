@@ -15,12 +15,22 @@ import android.os.Build
 import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -63,31 +73,62 @@ internal fun TransferSettings(container: AppContainer, settings: Settings) {
         if (granted) configure(requestedMode) else notice = "Notifications are blocked. You can enable them in Android's app settings."
     }
     GroupLabel("Uploads")
-    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Default expiry", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-                listOf(1 to "1 d", 7 to "7 d", 30 to "30 d", 0 to "Never").forEachIndexed { index, option ->
-                    ToggleButton(checked = settings.uploadExpiryDays == option.first, onCheckedChange = {
-                        scope.launch { container.settings.setUploadDefaults(option.first, settings.uploadDownloads, settings.autoCopyLink) }
-                    }, shapes = when (index) { 0 -> ButtonGroupDefaults.connectedLeadingButtonShapes(); 3 -> ButtonGroupDefaults.connectedTrailingButtonShapes(); else -> ButtonGroupDefaults.connectedMiddleButtonShapes() },
-                        modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text(option.second) }
+    SegmentedGroup {
+        MorphSurface(onClick = null, corners = segmentCorners(0, 2)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Default expiry",
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                    ConnectedChoices(
+                        options = ExpiryChoices,
+                        selected = settings.uploadExpiryDays,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        onSelect = { days -> scope.launch { container.settings.setUploadDefaults(days, settings.uploadDownloads, settings.autoCopyLink) } },
+                    )
                 }
-            }
-            var limit by remember(settings.uploadDownloads) { mutableStateOf(settings.uploadDownloads.toString()) }
-            OutlinedTextField(limit, { limit = it.filter(Char::isDigit).take(9) }, label = { Text("Default allowed downloads") },
-                supportingText = { Text("0 means unlimited") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large)
-            BouncyTextButton(onClick = { limit.toIntOrNull()?.let { scope.launch { container.settings.setUploadDefaults(settings.uploadExpiryDays, it, settings.autoCopyLink) } } }) { Text("Save download limit") }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) {
-                    Text("Copy upload link automatically")
-                    Text("Copies when Gokapi is open or when you return to it.", style = MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked = settings.autoCopyLink, onCheckedChange = { scope.launch { container.settings.setUploadDefaults(settings.uploadExpiryDays, settings.uploadDownloads, it) } })
+                var limit by remember(settings.uploadDownloads) { mutableStateOf(settings.uploadDownloads.toString()) }
+                val pending = limit.toIntOrNull()?.takeIf { it != settings.uploadDownloads }
+                ThemedTextField(
+                    value = limit,
+                    onValueChange = { limit = it.filter(Char::isDigit).take(9) },
+                    label = "Default allowed downloads",
+                    placeholder = "0",
+                    supportingText = "0 means unlimited",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    trailing = {
+                        AnimatedVisibility(
+                            visible = pending != null,
+                            enter = scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
+                            exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                        ) {
+                            FilledIconButton(
+                                onClick = { pending?.let { scope.launch { container.settings.setUploadDefaults(settings.uploadExpiryDays, it, settings.autoCopyLink) } } },
+                                shapes = IconButtonDefaults.shapes(),
+                            ) { MciIcon("check", 22.dp, LocalContentColor.current, contentDescription = "Save download limit") }
+                        }
+                    },
+                )
             }
         }
+        SettingsRow(
+            corners = segmentCorners(1, 2),
+            icon = { IconBadge("content-copy", "#3C7CAB", 40.dp) },
+            title = "Copy upload link automatically",
+            subtitle = "When Gokapi is open or you return to it",
+            onClick = { scope.launch { container.settings.setUploadDefaults(settings.uploadExpiryDays, settings.uploadDownloads, !settings.autoCopyLink) } },
+            trailing = {
+                Switch(
+                    checked = settings.autoCopyLink,
+                    onCheckedChange = { scope.launch { container.settings.setUploadDefaults(settings.uploadExpiryDays, settings.uploadDownloads, it) } },
+                )
+            },
+        )
     }
+
     GroupLabel("Notifications")
     ConnectedChoices(
         listOf(Choice(NotificationMode.INSTANT, "Instant", "lightning-bolt"), Choice(NotificationMode.POLL, "15 min", "clock-outline"), Choice(NotificationMode.OFF, "Off", "bell-off-outline")),
@@ -98,19 +139,54 @@ internal fun TransferSettings(container: AppContainer, settings: Settings) {
             else configure(mode)
         },
     )
-    Text("Instant delivery needs ntfy as a UnifiedPush distributor. Set its private HTTPS server and read account in ntfy. Copy the device endpoint below to your server's endpoint file. Without a distributor, Gokapi checks every 15 minutes.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
-    if (settings.notificationMode == NotificationMode.INSTANT) {
-        if (settings.pushStatus.isNotBlank()) Text(settings.pushStatus, modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodyMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BouncyTonalButton(onClick = { configure(NotificationMode.INSTANT) }) { Text("Reconnect") }
-            BouncyTonalButton(onClick = {
-                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi device endpoint", settings.pushEndpoint))
-                notice = "Device endpoint copied. Add it to the private server endpoint file."
-            }, enabled = settings.pushEndpoint.isNotBlank()) { Text("Copy endpoint") }
+    Text(
+        "Instant delivery needs ntfy as a UnifiedPush distributor. Set its private HTTPS server and read account in ntfy, then copy the device endpoint to your server's endpoint file. Without a distributor, Gokapi checks every 15 minutes.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 10.dp),
+    )
+    AnimatedVisibility(
+        visible = settings.notificationMode == NotificationMode.INSTANT,
+        enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+    ) {
+        SegmentedGroup(Modifier.padding(top = 12.dp)) {
+            SettingsRow(
+                corners = segmentCorners(0, 2),
+                icon = { IconBadge("access-point-network", "#7B6A9E", 40.dp) },
+                title = "Reconnect distributor",
+                subtitle = settings.pushStatus.ifBlank { "Registers this device with ntfy again" },
+                onClick = { configure(NotificationMode.INSTANT) },
+            )
+            SettingsRow(
+                corners = segmentCorners(1, 2),
+                icon = { IconBadge("content-copy", "#3D8075", 40.dp) },
+                title = "Copy device endpoint",
+                subtitle = if (settings.pushEndpoint.isBlank()) "No endpoint yet. Reconnect first." else "Add it to the private server endpoint file",
+                onClick = if (settings.pushEndpoint.isBlank()) null else ({
+                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi device endpoint", settings.pushEndpoint))
+                    notice = "Device endpoint copied. Add it to the private server endpoint file."
+                }),
+            )
         }
     }
-    notice?.let { Text(it, modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall) }
+    AnimatedVisibility(
+        visible = notice != null,
+        enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Text(notice.orEmpty(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+        }
+    }
+
     GroupLabel("Open links")
     var linkRefresh by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -123,9 +199,15 @@ internal fun TransferSettings(container: AppContainer, settings: Settings) {
         val state = context.getSystemService(DomainVerificationManager::class.java).getDomainVerificationUserState(context.packageName)
         state?.isLinkHandlingAllowed == true && state.hostToStateMap[BuildConfig.FILES_HOST] in listOf(DomainVerificationUserState.DOMAIN_STATE_SELECTED, DomainVerificationUserState.DOMAIN_STATE_VERIFIED)
     }.getOrDefault(false) else false }
-    SegmentedGroup {
-        SettingsRow(corners = segmentCorners(0, 1), title = "Open Gokapi links",
-            subtitle = when { BuildConfig.FILES_HOST.isBlank() -> "Link handling isn't included in this build."; enabled -> "Enabled for your files host"; else -> "Approve your files host under Open by default" },
-            onClick = if (BuildConfig.FILES_HOST.isBlank()) null else ({ context.startActivity(Intent(AndroidSettings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, Uri.parse("package:${context.packageName}"))) }))
-    }
+    SettingsRow(
+        corners = segmentCorners(0, 1),
+        icon = { IconBadge(if (enabled) "link-variant" else "link-variant-off", "#A86829", 40.dp) },
+        title = "Open Gokapi links",
+        subtitle = when {
+            BuildConfig.FILES_HOST.isBlank() -> "Link handling isn't included in this build"
+            enabled -> "Enabled for your files host"
+            else -> "Approve your files host under Open by default"
+        },
+        onClick = if (BuildConfig.FILES_HOST.isBlank()) null else ({ context.startActivity(Intent(AndroidSettings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, Uri.parse("package:${context.packageName}"))) }),
+    )
 }

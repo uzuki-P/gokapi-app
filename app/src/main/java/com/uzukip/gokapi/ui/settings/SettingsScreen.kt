@@ -10,11 +10,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -22,9 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -32,7 +28,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.rememberSliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +51,8 @@ import com.uzukip.gokapi.data.settings.ThemeMode
 import com.uzukip.gokapi.data.settings.VibrationStrength
 import com.uzukip.gokapi.platform.vibrationMs
 import com.uzukip.gokapi.ui.components.BouncyTextButton
+import com.uzukip.gokapi.ui.components.Choice
+import com.uzukip.gokapi.ui.components.ConnectedChoices
 import com.uzukip.gokapi.ui.components.IconBadge
 import com.uzukip.gokapi.ui.components.MciIcon
 import com.uzukip.gokapi.ui.components.MorphingBadge
@@ -186,51 +183,6 @@ fun SettingsScreen(
             },
             onDismiss = { showVibrationDialog = false },
         )
-    }
-}
-
-internal data class Choice<T>(val value: T, val label: String, val glyph: String)
-
-/** Full-width connected toggle buttons; the checked one rounds fully. */
-@Composable
-internal fun <T> ConnectedChoices(
-    options: List<Choice<T>>,
-    selected: T,
-    onSelect: (T) -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-    ) {
-        options.forEachIndexed { index, option ->
-            val checked = option.value == selected
-            ToggleButton(
-                checked = checked,
-                onCheckedChange = { onSelect(option.value) },
-                shapes = when (index) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(72.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    MciIcon(option.glyph, 22.dp, LocalContentColor.current)
-                    Text(
-                        option.label,
-                        style = if (checked) {
-                            MaterialTheme.typography.labelLargeEmphasized
-                        } else {
-                            MaterialTheme.typography.labelLarge
-                        },
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
     }
 }
 

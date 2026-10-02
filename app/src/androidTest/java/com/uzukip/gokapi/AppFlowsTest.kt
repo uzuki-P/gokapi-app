@@ -89,7 +89,7 @@ class AppFlowsTest {
         compose.onNodeWithText("Search files").performTextInput("report")
         compose.onNodeWithText("report.txt").assertExists()
         compose.onNodeWithText("sample.apk").assertDoesNotExist()
-        compose.onNodeWithText("Search files").performTextClearance()
+        compose.onNode(hasSetTextAction()).performTextClearance()
         device.pressBack()
         compose.onNodeWithText("sample.apk").performTouchInput { longClick() }
         compose.onNodeWithText("Share file").assertIsDisplayed()

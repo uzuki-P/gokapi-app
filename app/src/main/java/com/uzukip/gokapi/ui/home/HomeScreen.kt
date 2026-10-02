@@ -3,21 +3,74 @@ package com.uzukip.gokapi.ui.home
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumExtendedFloatingActionButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.FilledTonalToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.runtime.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.toShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,15 +86,47 @@ import coil.compose.AsyncImage
 import com.uzukip.gokapi.AppContainer
 import com.uzukip.gokapi.BuildConfig
 import com.uzukip.gokapi.LocalVibrate
-import com.uzukip.gokapi.data.server.*
+import com.uzukip.gokapi.data.server.GokapiFile
+import com.uzukip.gokapi.data.server.newerAppVersion
+import com.uzukip.gokapi.platform.ApkDetails
 import com.uzukip.gokapi.platform.AppMessages
-import com.uzukip.gokapi.ui.components.*
+import com.uzukip.gokapi.ui.components.ActionRow
+import com.uzukip.gokapi.ui.components.BouncyButton
+import com.uzukip.gokapi.ui.components.BouncyIconButton
+import com.uzukip.gokapi.ui.components.BouncyTextButton
+import com.uzukip.gokapi.ui.components.BouncyTonalButton
+import com.uzukip.gokapi.ui.components.Corners
+import com.uzukip.gokapi.ui.components.EmptyState
+import com.uzukip.gokapi.ui.components.IconBadge
+import com.uzukip.gokapi.ui.components.MciIcon
+import com.uzukip.gokapi.ui.components.MorphSurface
+import com.uzukip.gokapi.ui.components.SearchPill
+import com.uzukip.gokapi.ui.components.SectionHeader
+import com.uzukip.gokapi.ui.components.SegmentGap
+import com.uzukip.gokapi.ui.components.SegmentedGroup
+import com.uzukip.gokapi.ui.components.segmentCorners
 import com.uzukip.gokapi.ui.upload.UploadSheet
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
+private data class FileFilter(val type: String, val glyph: String)
+
+private val Filters = listOf(
+    FileFilter("All", "folder-outline"),
+    FileFilter("APK", "android"),
+    FileFilter("Images", "image-outline"),
+    FileFilter("Documents", "file-document-outline"),
+    FileFilter("Media", "play-circle-outline"),
+)
+
+/**
+ * Files home: large rounded title with a settings button, a search pill and
+ * filter toggles, live upload cards, then the files as one segmented group.
+ * Upload is a medium extended FAB that shrinks to its icon while scrolling
+ * down. Long-press a file for its action sheet.
+ */
 @Composable
 fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: () -> Unit, onOpenSettings: () -> Unit) {
     val model: FilesViewModel = viewModel(factory = remember(container) { viewModelFactory { initializer { FilesViewModel(container) } } })
@@ -107,111 +192,541 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
         }
     }
     val filtered = state.files.filter { it.name.contains(query, ignoreCase = true) && (filter == "All" || it.type == filter) }
-    Scaffold(
-        topBar = { GokapiTopBar(title = "Files", onBack = null, actions = {
-            BouncyIconButton(onClick = onOpenSettings) { MciIcon("cog-outline", 24.dp, LocalContentColor.current, contentDescription = "Settings") }
-        }) },
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { picker.launch(arrayOf("*/*")) }, icon = { MciIcon("plus", 24.dp, LocalContentColor.current) }, text = { Text("Upload") })
-        },
-    ) { padding ->
-        PullToRefreshBox(isRefreshing = state.loading, onRefresh = { vibrate(); model.refresh() }, modifier = Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                item {
-                    OutlinedTextField(query, { query = it }, label = { Text("Search files") }, singleLine = true,
-                        shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth())
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 12.dp)) {
-                        listOf("All", "APK", "Images", "Documents", "Media").forEach { type ->
-                            FilterChip(selected = filter == type, onClick = { filter = type }, label = { Text(type) })
+    val activeJobs = jobs.filter { !it.state.isFinished }
+    val listState = rememberLazyListState()
+    val fabExpanded by rememberExpandedOnScrollUp(listState)
+    val refreshState = rememberPullToRefreshState()
+
+    // Surface (not a bare background) so text inherits onSurface in both themes
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.loading && state.files.isNotEmpty(),
+            onRefresh = { vibrate(); model.refresh() },
+            state = refreshState,
+            indicator = {
+                PullToRefreshDefaults.LoadingIndicator(
+                    state = refreshState,
+                    isRefreshing = state.loading && state.files.isNotEmpty(),
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars),
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 136.dp),
+            ) {
+                item(key = "header") {
+                    HomeHeader(server = state.server, count = state.files.size, onOpenSettings = onOpenSettings)
+                }
+                item(key = "search") {
+                    SearchPill(value = query, onValueChange = { query = it }, placeholder = "Search files")
+                }
+                item(key = "filters") {
+                    FilterRow(selected = filter, onSelect = { vibrate(); filter = it })
+                }
+                if (activeJobs.isNotEmpty()) {
+                    item(key = "uploads-header") { SectionHeader(title = "Uploading") }
+                    itemsIndexed(activeJobs, key = { _, job -> "job-${job.id}" }) { index, job ->
+                        UploadJobRow(
+                            job = job,
+                            corners = segmentCorners(index, activeJobs.size),
+                            onCancel = { WorkManager.getInstance(context).cancelWorkById(job.id) },
+                            modifier = Modifier.animateItem().padding(bottom = SegmentGap),
+                        )
+                    }
+                }
+                state.error?.let { error ->
+                    item(key = "error") {
+                        ErrorCard(
+                            message = error,
+                            needsSetup = state.needsSetup,
+                            onAction = if (state.needsSetup) onOpenSettings else { { model.refresh() } },
+                        )
+                    }
+                }
+                when {
+                    state.loading && state.files.isEmpty() && state.error == null -> item(key = "loading") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                            ContainedLoadingIndicator(Modifier.size(64.dp))
+                        }
+                    }
+                    filtered.isEmpty() && state.error == null -> item(key = "empty") {
+                        val unfiltered = query.isBlank() && filter == "All"
+                        EmptyState(
+                            glyph = if (unfiltered) "cloud-upload-outline" else "file-search-outline",
+                            title = if (unfiltered) "No files yet" else "No matching files",
+                            message = if (unfiltered) "Upload a file or share one from your computer." else "Try another name or file type.",
+                            modifier = Modifier.padding(top = 24.dp),
+                        )
+                    }
+                    filtered.isNotEmpty() -> {
+                        item(key = "files-header") {
+                            SectionHeader(
+                                title = if (query.isBlank() && filter == "All") "Recent files" else "Results",
+                                action = {
+                                    Text(
+                                        "${filtered.size} ${if (filtered.size == 1) "file" else "files"}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(end = 4.dp),
+                                    )
+                                },
+                            )
+                        }
+                        itemsIndexed(filtered, key = { _, file -> file.id }) { index, file ->
+                            FileRow(
+                                file = file,
+                                server = state.server,
+                                corners = segmentCorners(index, filtered.size),
+                                progress = if (state.transferring == file.id) {
+                                    if (state.total > 0) (state.bytes.toFloat() / state.total).coerceIn(0f, 1f) else 0f
+                                } else null,
+                                enabled = state.transferring == null,
+                                onClick = { vibrate(); model.download(file, FileAction.OPEN) },
+                                onLongClick = { vibrate(); model.select(file) },
+                                onCancel = model::cancelDownload,
+                                modifier = Modifier.animateItem().padding(bottom = SegmentGap),
+                            )
                         }
                     }
                 }
-                item {
-                    jobs.filter { !it.state.isFinished }.forEach { job ->
-                        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                            Column(Modifier.padding(16.dp)) {
-                                Text(job.progress.getString("name") ?: "Upload queued", style = MaterialTheme.typography.titleMedium)
-                                val percent = job.progress.getInt("percent", -1)
-                                if (percent < 0) LinearProgressIndicator(Modifier.fillMaxWidth()) else LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
-                                BouncyTextButton(onClick = { WorkManager.getInstance(context).cancelWorkById(job.id) }) { Text("Cancel upload") }
-                            }
-                        }
-                    }
-                }
-                state.error?.let { error -> item {
-                    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.errorContainer) {
-                        Column(Modifier.padding(20.dp)) {
-                            Text(error)
-                            BouncyTextButton(onClick = if (state.needsSetup) onOpenSettings else { { model.refresh() } }) { Text(if (state.needsSetup) "Set up server" else "Try again") }
-                        }
-                    }
-                } }
-                if (filtered.isEmpty() && !state.loading && state.error == null) item {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp)) {
-                        EmptyState(glyph = "cloud-download-outline", title = if (query.isBlank() && filter == "All") "No files yet" else "No matching files",
-                            message = if (query.isBlank() && filter == "All") "Upload a file or share one from your computer." else "Try another name or file type.")
-                    }
-                }
-                itemsIndexed(filtered, key = { _, file -> file.id }) { index, file ->
-                    SegmentedGroup {
-                        MorphSurface(onClick = { vibrate(); model.download(file, FileAction.OPEN) }, onLongClick = { vibrate(); model.select(file) },
-                            corners = segmentCorners(index, filtered.size), enabled = state.transferring == null) {
-                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                if (file.isImage && file.hotlinkId.isNotBlank() && !file.encrypted) AsyncImage(model = file.link(state.server, true), contentDescription = null, modifier = Modifier.size(48.dp))
-                                else IconBadge(file.glyph, if (file.isApk) "#3D8075" else "#6376A8", 48.dp)
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(file.name, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text("${file.size} · ${file.age()}", style = MaterialTheme.typography.bodySmall)
-                                    Text(file.expiry() + if (file.unlimitedDownloads) "" else " · ${file.downloadsRemaining} downloads left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (newerAppVersion(file.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")) Text("Update available", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                                    if (state.transferring == file.id) LinearProgressIndicator(progress = { if (state.total > 0) (state.bytes.toFloat() / state.total).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth())
-                                }
-                                MciIcon("chevron-right", 20.dp, MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
-                if (state.transferring != null) item { BouncyTextButton(onClick = model::cancelDownload) { Text("Cancel download") } }
             }
         }
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars)) {
+            MediumExtendedFloatingActionButton(
+                text = { Text("Upload") },
+                icon = { MciIcon("upload", 28.dp, LocalContentColor.current) },
+                onClick = { vibrate(); picker.launch(arrayOf("*/*")) },
+                expanded = fabExpanded,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 16.dp),
+            )
+            SnackbarHost(
+                snackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 16.dp, end = 16.dp, bottom = 112.dp),
+            )
+        }
     }
+
     state.selected?.let { file ->
-        ModalBottomSheet(onDismissRequest = model::dismiss) {
-            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(file.name, style = MaterialTheme.typography.headlineSmallEmphasized)
-                Text("${file.size} · ${file.expiry()}")
-                BouncyButton(onClick = { model.download(file, FileAction.OPEN) }, modifier = Modifier.fillMaxWidth()) { Text(if (file.isApk) "Install" else "Open") }
-                BouncyTonalButton(onClick = { model.download(file, FileAction.SHARE) }, modifier = Modifier.fillMaxWidth()) { Text("Share file") }
-                BouncyTonalButton(onClick = { model.download(file, FileAction.SAVE) }, modifier = Modifier.fillMaxWidth()) { Text("Save to Downloads") }
-                BouncyTextButton(onClick = {
-                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", file.link(state.server)))
-                    model.dismiss(); model.report("Link copied")
-                }) { Text("Copy link") }
-                BouncyTextButton(onClick = { deleteTarget = file }) { Text("Delete file", color = MaterialTheme.colorScheme.error) }
-            }
-        }
+        FileActionsSheet(
+            file = file,
+            onDismiss = model::dismiss,
+            onOpen = { model.download(file, FileAction.OPEN) },
+            onShare = { model.download(file, FileAction.SHARE) },
+            onSave = { model.download(file, FileAction.SAVE) },
+            onCopyLink = {
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", file.link(state.server)))
+                model.dismiss(); model.report("Link copied")
+            },
+            onDelete = { deleteTarget = file },
+        )
     }
-    deleteTarget?.let { file -> AlertDialog(onDismissRequest = { deleteTarget = null }, title = { Text("Delete ${file.name}?") },
-        text = { Text("This permanently removes the file from the server. You need DELETE permission.") },
-        confirmButton = { BouncyTextButton(onClick = { deleteTarget = null; model.delete(file) }) { Text("Delete") } },
-        dismissButton = { BouncyTextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }) }
+    deleteTarget?.let { file ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            icon = { MciIcon("trash-can-outline", 24.dp, MaterialTheme.colorScheme.error) },
+            title = { Text("Delete ${file.name}?") },
+            text = { Text("This permanently removes the file from the server. You need DELETE permission.") },
+            confirmButton = {
+                BouncyTextButton(
+                    onClick = { deleteTarget = null; model.delete(file) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
+            },
+            dismissButton = { BouncyTextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+        )
+    }
     state.apk?.let { apk ->
-        ModalBottomSheet(onDismissRequest = model::dismiss) {
-            Column(Modifier.padding(24.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(apk.title, style = MaterialTheme.typography.headlineSmallEmphasized)
-                Text(apk.packageName, style = MaterialTheme.typography.bodyMedium)
-                if (!apk.signatureMatches) {
-                    Text("The signing certificate differs. Uninstall the existing app first. Uninstalling removes its local data.", color = MaterialTheme.colorScheme.error)
-                    BouncyButton(onClick = { context.startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:${apk.packageName}"))) }) { Text("Uninstall existing app") }
-                } else if (!container.installer.canInstall()) {
-                    Text("Allow Gokapi to install apps so it can install the APKs you choose.")
-                    BouncyButton(onClick = { context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))) }) { Text("Allow app installs") }
-                } else {
-                    BouncyButton(onClick = { model.install(apk) }, modifier = Modifier.fillMaxWidth()) { Text(if (apk.installedVersion == null) "Install" else "Update") }
-                }
-            }
-        }
+        ApkSheet(
+            apk = apk,
+            canInstall = container.installer.canInstall(),
+            onDismiss = model::dismiss,
+            onUninstall = { context.startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:${apk.packageName}"))) },
+            onAllowInstalls = { context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))) },
+            onInstall = { model.install(apk) },
+        )
     }
     if (uploadUris.isNotEmpty()) UploadSheet(container, uploadUris, onDismiss = { uploadUris = emptyList() }, onQueued = { uploadUris = emptyList(); model.report("Upload queued") })
+}
+
+/**
+ * True while the list rests at the top or the user scrolls back up, so the
+ * Upload FAB shrinks to its icon while reading and grows back on the way up.
+ */
+@Composable
+private fun rememberExpandedOnScrollUp(state: LazyListState): State<Boolean> {
+    val expanded = remember { mutableStateOf(true) }
+    LaunchedEffect(state) {
+        var lastIndex = state.firstVisibleItemIndex
+        var lastOffset = state.firstVisibleItemScrollOffset
+        snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                val delta = if (index != lastIndex) (index - lastIndex) * 1000 else offset - lastOffset
+                when {
+                    index == 0 && offset < 24 -> expanded.value = true
+                    delta > 8 -> expanded.value = false
+                    delta < -8 -> expanded.value = true
+                }
+                lastIndex = index
+                lastOffset = offset
+            }
+    }
+    return expanded
+}
+
+@Composable
+private fun HomeHeader(server: String, count: Int, onOpenSettings: () -> Unit) {
+    val host = server.toHttpUrlOrNull()?.host
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 12.dp, bottom = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Gokapi",
+                style = MaterialTheme.typography.displaySmallEmphasized,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                when {
+                    host == null -> "Not connected"
+                    else -> "$count ${if (count == 1) "file" else "files"} · $host"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        FilledTonalIconButton(
+            onClick = onOpenSettings,
+            shapes = IconButtonDefaults.shapes(),
+            modifier = Modifier.height(48.dp),
+        ) {
+            MciIcon("cog-outline", 24.dp, MaterialTheme.colorScheme.onSecondaryContainer, contentDescription = "Settings")
+        }
+    }
+}
+
+/** Scrollable file-type toggles; the checked one fills and morphs its shape. */
+@Composable
+private fun FilterRow(selected: String, onSelect: (String) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(top = 12.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Filters.forEach { option ->
+            val checked = selected == option.type
+            FilledTonalToggleButton(
+                checked = checked,
+                onCheckedChange = { onSelect(option.type) },
+                shapes = ToggleButtonDefaults.shapesFor(40.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                modifier = Modifier.height(40.dp),
+            ) {
+                MciIcon(option.glyph, 18.dp, LocalContentColor.current)
+                Text(
+                    option.type,
+                    style = if (checked) MaterialTheme.typography.labelLargeEmphasized else MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UploadJobRow(job: WorkInfo, corners: Corners, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    val percent = job.progress.getInt("percent", -1)
+    MorphSurface(
+        onClick = null,
+        corners = corners,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            IconBadge("cloud-upload-outline", "#00838F", 48.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    job.progress.getString("name") ?: "Upload queued",
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (percent < 0) {
+                    LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                } else {
+                    LinearWavyProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+                    Text("$percent%", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            BouncyIconButton(onClick = onCancel) {
+                MciIcon("close", 22.dp, LocalContentColor.current, contentDescription = "Cancel upload")
+            }
+        }
+    }
+}
+
+/** First-run prompt (tonal) or connection failure (error colors) with its recovery action. */
+@Composable
+private fun ErrorCard(message: String, needsSetup: Boolean, onAction: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = if (needsSetup) scheme.secondaryContainer else scheme.errorContainer,
+        contentColor = if (needsSetup) scheme.onSecondaryContainer else scheme.onErrorContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MciIcon(if (needsSetup) "server-network" else "cloud-alert-outline", 28.dp, LocalContentColor.current)
+                Text(
+                    if (needsSetup) "Connect your server" else "Couldn't reach the server",
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                )
+            }
+            Text(message, style = MaterialTheme.typography.bodyMedium)
+            BouncyButton(
+                onClick = onAction,
+                colors = if (needsSetup) {
+                    ButtonDefaults.buttonColors()
+                } else {
+                    ButtonDefaults.buttonColors(containerColor = scheme.error, contentColor = scheme.onError)
+                },
+            ) { Text(if (needsSetup) "Set up server" else "Try again") }
+        }
+    }
+}
+
+@Composable
+private fun FileThumbnail(file: GokapiFile, server: String, size: androidx.compose.ui.unit.Dp) {
+    if (file.isImage && file.hotlinkId.isNotBlank() && !file.encrypted) {
+        AsyncImage(
+            model = file.link(server, true),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(16.dp)),
+        )
+    } else {
+        IconBadge(file.glyph, if (file.isApk) "#3D8075" else "#6376A8", size)
+    }
+}
+
+@Composable
+private fun FileRow(
+    file: GokapiFile,
+    server: String,
+    corners: Corners,
+    progress: Float?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val update = newerAppVersion(file.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")
+    MorphSurface(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        corners = corners,
+        enabled = enabled,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column {
+            Row(
+                Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                FileThumbnail(file, server, 48.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(file.name, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${file.size} · ${file.age()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        MciIcon(if (file.unlimitedTime) "infinity" else "timer-sand", 14.dp, MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            file.expiry() + if (file.unlimitedDownloads) "" else " · ${file.downloadsRemaining} downloads left",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (update) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text(
+                                "Update available",
+                                style = MaterialTheme.typography.labelMediumEmphasized,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                }
+                if (progress != null) {
+                    BouncyIconButton(onClick = onCancel) {
+                        MciIcon("close", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "Cancel download")
+                    }
+                } else {
+                    MciIcon("chevron-right", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            AnimatedVisibility(
+                visible = progress != null,
+                enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+            ) {
+                LinearWavyProgressIndicator(
+                    progress = { progress ?: 0f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Long-press sheet: file header, a large primary Open/Install, then the segmented action list. */
+@Composable
+private fun FileActionsSheet(
+    file: GokapiFile,
+    onDismiss: () -> Unit,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+    onSave: () -> Unit,
+    onCopyLink: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(
+                Modifier.padding(start = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                IconBadge(file.glyph, if (file.isApk) "#3D8075" else "#6376A8", 56.dp, shape = MaterialShapes.Cookie9Sided.toShape())
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(file.name, style = MaterialTheme.typography.headlineSmallEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${file.size} · ${file.expiry()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            BouncyButton(
+                onClick = onOpen,
+                height = ButtonDefaults.MediumContainerHeight,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ButtonDefaults.MediumContainerHeight),
+            ) {
+                MciIcon(if (file.isApk) "download" else "open-in-new", 22.dp, LocalContentColor.current)
+                Text(if (file.isApk) "Install" else "Open", modifier = Modifier.padding(start = 8.dp))
+            }
+            SegmentedGroup {
+                ActionRow("share-variant-outline", "Share file", segmentCorners(0, 4), onClick = onShare)
+                ActionRow("tray-arrow-down", "Save to Downloads", segmentCorners(1, 4), onClick = onSave)
+                ActionRow("link-variant", "Copy link", segmentCorners(2, 4), onClick = onCopyLink)
+                ActionRow("trash-can-outline", "Delete file", segmentCorners(3, 4), onClick = onDelete, destructive = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApkSheet(
+    apk: ApkDetails,
+    canInstall: Boolean,
+    onDismiss: () -> Unit,
+    onUninstall: () -> Unit,
+    onAllowInstalls: () -> Unit,
+    onInstall: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(
+                Modifier.padding(start = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                IconBadge("android", "#3D8075", 56.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(apk.title, style = MaterialTheme.typography.headlineSmallEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(apk.packageName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            val buttonModifier = Modifier
+                .fillMaxWidth()
+                .height(ButtonDefaults.MediumContainerHeight)
+            when {
+                !apk.signatureMatches -> {
+                    Notice("alert-outline", "The signing certificate differs. Uninstall the existing app first. Uninstalling removes its local data.", error = true)
+                    BouncyButton(
+                        onClick = onUninstall,
+                        height = ButtonDefaults.MediumContainerHeight,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
+                        modifier = buttonModifier,
+                    ) { Text("Uninstall existing app") }
+                }
+                !canInstall -> {
+                    Notice("shield-alert-outline", "Allow Gokapi to install apps so it can install the APKs you choose.", error = false)
+                    BouncyTonalButton(onClick = onAllowInstalls, height = ButtonDefaults.MediumContainerHeight, modifier = buttonModifier) {
+                        Text("Allow app installs")
+                    }
+                }
+                else -> BouncyButton(onClick = onInstall, height = ButtonDefaults.MediumContainerHeight, modifier = buttonModifier) {
+                    MciIcon("download", 22.dp, LocalContentColor.current)
+                    Text(if (apk.installedVersion == null) "Install" else "Update", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Notice(glyph: String, text: String, error: Boolean) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = if (error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            MciIcon(glyph, 22.dp, LocalContentColor.current)
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }

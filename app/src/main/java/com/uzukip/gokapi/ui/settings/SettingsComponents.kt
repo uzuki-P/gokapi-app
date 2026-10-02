@@ -27,7 +27,10 @@ internal fun GroupLabel(title: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Segmented settings row: 40dp badge, title + subtitle, chevron when pressable. */
+/**
+ * Segmented settings row: 40dp badge, title + subtitle, then [trailing]
+ * (a switch, say) or a chevron when pressable.
+ */
 @Composable
 internal fun SettingsRow(
     corners: Corners,
@@ -37,6 +40,7 @@ internal fun SettingsRow(
     icon: (@Composable () -> Unit)? = null,
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
     onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     MorphSurface(
         onClick = onClick,
@@ -59,7 +63,9 @@ internal fun SettingsRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (onClick != null) {
+            if (trailing != null) {
+                trailing()
+            } else if (onClick != null) {
                 MciIcon("chevron-right", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
