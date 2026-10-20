@@ -142,6 +142,8 @@ internal fun FilesScreen(
     model: FilesModel,
     keys: KeyActions,
     onPickFiles: () -> List<File>,
+    uploadPending: Boolean,
+    onUploadHandled: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by model.state.collectAsState()
@@ -170,6 +172,12 @@ internal fun FilesScreen(
     val visibleIds = filtered.mapTo(HashSet(), GokapiFile::id)
     LaunchedEffect(visibleIds) { model.retainChecked(visibleIds) }
     val pickUploads = { onPickFiles().takeIf { it.isNotEmpty() }?.let { pendingUploads = it } }
+    LaunchedEffect(uploadPending) {
+        if (uploadPending) {
+            onUploadHandled()
+            pickUploads()
+        }
+    }
     keys.handler = { key ->
         when (key) {
             AppKey.ESCAPE -> if (state.selecting) { model.clearChecked(); true } else false

@@ -72,9 +72,9 @@ import com.uzukip.gokapi.ui.theme.PRESET_SEEDS
 import com.uzukip.gokapi.ui.theme.parseSeedColor
 import kotlinx.coroutines.launch
 
-/** Server, appearance, theme color, and upload defaults: the Android app's settings without haptics or notifications. */
+/** Server, appearance, theme color, upload defaults, and the tray: the Android app's settings without haptics or notifications. */
 @Composable
-internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, onServerSaved: () -> Unit, onBack: () -> Unit) {
+internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, trayAvailable: Boolean, onServerSaved: () -> Unit, onBack: () -> Unit) {
     val settings by container.settings.settings.collectAsState()
     val scope = rememberCoroutineScope()
     val scrollBehavior = rememberCollapsingBar()
@@ -180,6 +180,26 @@ internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, onSer
                                 Switch(
                                     checked = settings.autoCopyLink,
                                     onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(autoCopyLink = value) } } },
+                                )
+                            },
+                        )
+                    }
+
+                    NotificationSettings(container, trayAvailable)
+
+                    GroupLabel("Desktop")
+                    SegmentedGroup {
+                        SettingsRow(
+                            corners = segmentCorners(0, 1),
+                            icon = { IconBadge("tray-arrow-down", "#7B6A9E", 40.dp) },
+                            title = "Keep running in the tray",
+                            subtitle = if (trayAvailable) "Closing the window hides it to the tray. Quit from the tray menu."
+                                else "No system tray found, so closing the window quits.",
+                            onClick = { scope.launch { container.settings.update { it.copy(closeToTray = !it.closeToTray) } } },
+                            trailing = {
+                                Switch(
+                                    checked = settings.closeToTray,
+                                    onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(closeToTray = value) } } },
                                 )
                             },
                         )

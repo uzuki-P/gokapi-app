@@ -88,6 +88,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.jna.platform)
+    // The Linux tray: a StatusNotifierItem on the session bus (platform/LinuxSniTray.kt).
+    implementation(libs.dbus.java.core)
+    implementation(libs.dbus.java.transport.unixsocket)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
@@ -108,8 +111,9 @@ compose.desktop {
         jvmArgs += listOf("-Xms32m", "-Xmx384m", "-XX:MinHeapFreeRatio=20", "-XX:MaxHeapFreeRatio=40")
 
         nativeDistributions {
-            // crypto.ec: TLS to the files host; jdk.unsupported: Skiko and coroutines.
-            modules("java.naming", "jdk.crypto.ec", "jdk.unsupported")
+            // crypto.ec: TLS to the files host; jdk.unsupported: Skiko and coroutines;
+            // security.auth: dbus-java's unix-socket auth for the Linux tray.
+            modules("java.naming", "jdk.crypto.ec", "jdk.security.auth", "jdk.unsupported")
             targetFormats(TargetFormat.AppImage, TargetFormat.Exe)
             packageName = "gokapi-desktop"
             packageVersion = project.version.toString()

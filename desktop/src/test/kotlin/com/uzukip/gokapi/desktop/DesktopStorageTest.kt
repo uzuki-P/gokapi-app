@@ -28,6 +28,7 @@ class DesktopStorageTest {
         assertEquals("#123ABC", reloaded.userSeed)
         assertEquals(4, reloaded.uploadDownloads)
         assertEquals(true, reloaded.autoCopyLink)
+        assertEquals("closing to the tray is on by default", true, reloaded.closeToTray)
     }
 
     @Test

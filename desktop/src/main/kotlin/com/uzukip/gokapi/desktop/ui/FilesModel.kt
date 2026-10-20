@@ -216,6 +216,8 @@ internal class FilesModel(private val container: DesktopContainer, private val s
                     }
                 }
             }
+            // Your own upload is not news: keep it out of the new-file notifications.
+            container.seenFiles.add(c.serverUrl, uploaded.id)
             refresh()
             if (container.settings.settings.value.autoCopyLink) {
                 DesktopShell.copy(uploaded.link(c.serverUrl))

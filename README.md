@@ -60,6 +60,14 @@ The file must have mode 0600. Android asks for notification permission when you
 turn notifications on. Every 15 min uses polling without a distributor.
 The first poll records existing files without notifying about the whole list.
 
+The desktop app notifies while it runs, including from the tray. Settings,
+New file notifications, offers Every 5 min (the default) or Instant. Instant
+subscribes to an ntfy topic with the android account (`android:<password>`) or
+an access token. Use the regular topic set as `NTFY_URL` in the files
+service's `.env`, such as `https://<ntfy host>/gokapi-uploads`, or add a
+desktop topic URL such as `https://<ntfy host>/up<random>` to
+`ntfy-endpoints`.
+
 ## Build and validate
 
 `mainApp` uses `com.uzukip.gokapi`. The dev flavor uses

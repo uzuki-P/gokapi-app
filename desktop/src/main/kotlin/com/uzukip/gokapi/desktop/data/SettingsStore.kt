@@ -14,7 +14,10 @@ import kotlinx.coroutines.withContext
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 enum class ColorSource { DEFAULT, USER }
 
-/** The Android app's appearance and upload settings, minus haptics, wallpaper colors, and notifications. */
+/** New-file notifications: none, a periodic check, or an ntfy subscription plus the check. */
+enum class NotificationMode { OFF, POLL, INSTANT }
+
+/** The Android app's appearance and upload settings, minus haptics and wallpaper colors, plus the tray. */
 data class Settings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val colorSource: ColorSource = ColorSource.DEFAULT,
@@ -22,6 +25,9 @@ data class Settings(
     val uploadExpiryDays: Int = 7,
     val uploadDownloads: Int = 0,
     val autoCopyLink: Boolean = false,
+    /** Closing the window hides it to the tray; the app quits from the tray menu. */
+    val closeToTray: Boolean = true,
+    val notificationMode: NotificationMode = NotificationMode.POLL,
 )
 
 /** [Settings] in `settings.properties` under the config directory. Loaded once, written on each change. */
@@ -41,6 +47,8 @@ class SettingsStore(private val file: File) {
                 setProperty("upload_expiry", current.uploadExpiryDays.toString())
                 setProperty("upload_downloads", current.uploadDownloads.toString())
                 setProperty("auto_copy_link", current.autoCopyLink.toString())
+                setProperty("close_to_tray", current.closeToTray.toString())
+                setProperty("notifications", current.notificationMode.name)
             }
             file.parentFile.mkdirs()
             val temporary = File(file.parentFile, file.name + ".tmp")
@@ -60,6 +68,8 @@ class SettingsStore(private val file: File) {
             uploadExpiryDays = p.getProperty("upload_expiry")?.toIntOrNull()?.coerceAtLeast(0) ?: defaults.uploadExpiryDays,
             uploadDownloads = p.getProperty("upload_downloads")?.toIntOrNull()?.coerceAtLeast(0) ?: defaults.uploadDownloads,
             autoCopyLink = p.getProperty("auto_copy_link")?.toBooleanStrictOrNull() ?: defaults.autoCopyLink,
+            closeToTray = p.getProperty("close_to_tray")?.toBooleanStrictOrNull() ?: defaults.closeToTray,
+            notificationMode = enumOr(p.getProperty("notifications"), defaults.notificationMode),
         )
     }
 

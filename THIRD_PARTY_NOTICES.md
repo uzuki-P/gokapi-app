@@ -29,6 +29,6 @@ app packages the same font.
 
 The apps link open-source libraries resolved by Gradle, including AndroidX,
 Jetpack Compose, Compose Multiplatform, Kotlin and kotlinx, OkHttp,
-MaterialKolor, the UnifiedPush connector, Coil, and JNA. Each keeps its own
-license, listed in its published POM. The desktop build scripts adapt the
-packaging from the author's lyrics-float and metrolist-desktop projects.
+MaterialKolor, the UnifiedPush connector, Coil, JNA, and dbus-java. Each keeps its own
+license, listed in its published POM. The desktop build scripts and tray adapt
+code from the author's pray-time, lyrics-float, and metrolist-desktop projects.

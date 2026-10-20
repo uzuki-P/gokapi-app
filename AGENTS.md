@@ -20,6 +20,18 @@ on desktop, drop it from the list and keep a desktop copy, as `Choices.kt`
 does for a material3 API rename. Desktop-only code lives under
 `desktop/src/main/kotlin/com/uzukip/gokapi/desktop/`.
 
+The desktop app keeps running in the system tray: closing the window hides it
+while the tray icon is showing, and Quit in the tray menu exits. The tray is a
+StatusNotifierItem over D-Bus on Linux (`platform/LinuxSniTray.kt`) and AWT
+`SystemTray` on Windows. A second launch shows the running app's window
+instead of starting another (`platform/SingleInstance.kt`).
+
+New-file notifications (`notify/`) run while the desktop app runs, tray
+included. Every 5 min polls the file list. Instant also subscribes to an ntfy
+topic's JSON stream and checks on each message, with 15-minute polling as a
+fallback. `SeenFiles` keeps the announced IDs; the first check only records a
+baseline, and the app's own uploads are marked seen.
+
 The main app uses `com.uzukip.gokapi`. The dev flavor uses
 `com.uzukip.gokapi.dev`, has its own Android data, and installs side by side.
 

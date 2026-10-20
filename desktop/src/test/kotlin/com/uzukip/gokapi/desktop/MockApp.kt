@@ -22,12 +22,18 @@ fun main() {
     val dirs = AppDirs(env = { name -> mapOf("XDG_CONFIG_HOME" to "$root/config", "XDG_CACHE_HOME" to "$root/cache", "LOCALAPPDATA" to "$root/local")[name] }, home = File(root, "home"))
     val container = DesktopContainer(dirs, GokapiClient())
     // The client accepts plain HTTP; only the Settings form insists on HTTPS.
-    runBlocking { container.credentials.save(ServerCredentials(server.url("/").toString().trimEnd('/'), "mock-key")) }
+    runBlocking {
+        container.credentials.save(ServerCredentials(server.url("/").toString().trimEnd('/'), "mock-key"))
+        // Instant notifications from the fake ntfy topic below; a phone upload arrives 15 s in.
+        container.ntfy.save(server.url("/gokapi-uploads").toString(), "tk_mock")
+        container.settings.update { it.copy(notificationMode = com.uzukip.gokapi.desktop.data.NotificationMode.INSTANT) }
+    }
     runApp(container, title = "Gokapi (mock)")
 }
 
 private class MockGokapi : Dispatcher() {
     private val now = System.currentTimeMillis() / 1000
+    private val phoneUploaded = java.util.concurrent.atomic.AtomicBoolean(false)
     private val files = mutableListOf(
         file("a1", "gokapi-android-0.1.4-20-oct_09-12.apk", "application/vnd.android.package-archive", 9_437_184, 600, unlimited = false),
         file("b2", "Quarterly report final.pdf", "application/pdf", 1_253_000, 7_200, unlimited = false),
@@ -45,6 +51,14 @@ private class MockGokapi : Dispatcher() {
     override fun dispatch(request: RecordedRequest): MockResponse {
         val path = request.path.orEmpty()
         return when {
+            path == "/gokapi-uploads/json" -> {
+                // Only the first subscription gets the upload; later ones stay quiet.
+                if (!phoneUploaded.compareAndSet(false, true)) { Thread.sleep(10 * 60_000L); return MockResponse() }
+                Thread.sleep(15_000)
+                val entry = file("p${System.nanoTime() % 100000}", "IMG_2041 from phone.jpg", "image/jpeg", 2_400_000, 0, unlimited = false)
+                synchronized(files) { files.add(0, entry) }
+                MockResponse().setBody("""{"event":"open"}""" + "\n" + """{"event":"message","message":"{}"}""" + "\n")
+            }
             path == "/api/info/version" -> json("""{"Version":"2.2.4"}""")
             path == "/api/info/config" -> json("""{"MaxFilesize":2048,"MaxChunksize":45}""")
             path == "/api/files/list" -> json(synchronized(files) { files.joinToString(",", "[", "]") })

@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import com.uzukip.gokapi.desktop.DesktopContainer
 import java.io.File
+import kotlinx.coroutines.flow.Flow
 
 private enum class Screen { HOME, SETTINGS }
 
@@ -28,11 +30,28 @@ private enum class Screen { HOME, SETTINGS }
  * a quarter width and fades in, the covered one drifts back. Back plays it in reverse.
  */
 @Composable
-internal fun DesktopApp(container: DesktopContainer, keys: KeyActions, onPickFiles: () -> List<File>) {
+internal fun DesktopApp(
+    container: DesktopContainer,
+    keys: KeyActions,
+    trayAvailable: Boolean,
+    uploadRequests: Flow<Unit>,
+    fileEvents: Flow<Unit>,
+    onPickFiles: () -> List<File>,
+) {
     val scope = rememberCoroutineScope()
     val files = remember { FilesModel(container, scope).also { it.refresh() } }
     var screen by remember { mutableStateOf(Screen.HOME) }
     var serverChanged by remember { mutableStateOf(false) }
+    // The tray's Upload files… goes back to the file list, which then opens the picker.
+    var uploadPending by remember { mutableStateOf(false) }
+    // The new-file watcher found files; show them in the list too.
+    LaunchedEffect(fileEvents) { fileEvents.collect { files.refresh() } }
+    LaunchedEffect(uploadRequests) {
+        uploadRequests.collect {
+            screen = Screen.HOME
+            uploadPending = true
+        }
+    }
     val motion = MaterialTheme.motionScheme
     AnimatedContent(
         targetState = screen,
@@ -50,10 +69,11 @@ internal fun DesktopApp(container: DesktopContainer, keys: KeyActions, onPickFil
         label = "screen",
     ) { target ->
         when (target) {
-            Screen.HOME -> FilesScreen(files, keys, onPickFiles, onOpenSettings = { screen = Screen.SETTINGS })
+            Screen.HOME -> FilesScreen(files, keys, onPickFiles, uploadPending, onUploadHandled = { uploadPending = false }, onOpenSettings = { screen = Screen.SETTINGS })
             Screen.SETTINGS -> SettingsScreen(
                 container,
                 keys,
+                trayAvailable,
                 onServerSaved = { serverChanged = true },
                 onBack = {
                     screen = Screen.HOME
