@@ -10,6 +10,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -62,6 +64,7 @@ import com.uzukip.gokapi.ui.components.MorphSurface
 import com.uzukip.gokapi.ui.components.MorphingBadge
 import com.uzukip.gokapi.ui.components.SegmentedGroup
 import com.uzukip.gokapi.ui.components.ThemedTextField
+import com.uzukip.gokapi.ui.components.TwoPaneMinWidth
 import com.uzukip.gokapi.ui.components.pressScale
 import com.uzukip.gokapi.ui.components.rememberCollapsingBar
 import com.uzukip.gokapi.ui.components.segmentCorners
@@ -72,7 +75,10 @@ import com.uzukip.gokapi.ui.theme.PRESET_SEEDS
 import com.uzukip.gokapi.ui.theme.parseSeedColor
 import kotlinx.coroutines.launch
 
-/** Server, appearance, theme color, upload defaults, and the tray: the Android app's settings without haptics or notifications. */
+/**
+ * Server, notifications, appearance, theme color, upload defaults, and the tray. Wide windows
+ * show the server and notifications in one column and the preferences in another.
+ */
 @Composable
 internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, trayAvailable: Boolean, onServerSaved: () -> Unit, onBack: () -> Unit) {
     val settings by container.settings.settings.collectAsState()
@@ -80,6 +86,125 @@ internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, trayA
     val scrollBehavior = rememberCollapsingBar()
     val scroll = rememberScrollState()
     keys.handler = { key -> if (key == AppKey.ESCAPE) { onBack(); true } else false }
+
+    val server: @Composable () -> Unit = {
+        ServerSettings(container.credentials, container.client, onServerSaved)
+    }
+    val look: @Composable () -> Unit = {
+        GroupLabel("Appearance")
+        ConnectedChoices(
+            options = listOf(
+                Choice(ThemeMode.SYSTEM, "System", "theme-light-dark"),
+                Choice(ThemeMode.LIGHT, "Light", "white-balance-sunny"),
+                Choice(ThemeMode.DARK, "Dark", "moon-waning-crescent"),
+            ),
+            selected = settings.themeMode,
+            onSelect = { mode -> scope.launch { container.settings.update { it.copy(themeMode = mode) } } },
+        )
+
+        GroupLabel("Theme color")
+        ConnectedChoices(
+            options = listOf(
+                Choice(ColorSource.DEFAULT, "Default", "format-color-fill"),
+                Choice(ColorSource.USER, "Custom", "palette-outline"),
+            ),
+            selected = settings.colorSource,
+            onSelect = { source -> scope.launch { container.settings.update { it.copy(colorSource = source) } } },
+        )
+        AnimatedVisibility(
+            visible = settings.colorSource == ColorSource.USER,
+            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+        ) {
+            Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                SwatchGrid(
+                    selectedHex = settings.userSeed ?: DEFAULT_SEED,
+                    onPick = { hex -> scope.launch { container.settings.update { it.copy(userSeed = hex) } } },
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+    }
+    val uploads: @Composable () -> Unit = {
+        GroupLabel("Uploads")
+        SegmentedGroup {
+            MorphSurface(onClick = null, corners = segmentCorners(0, 2)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "Default expiry",
+                            style = MaterialTheme.typography.labelLargeEmphasized,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                        ConnectedChoices(
+                            options = ExpiryChoices,
+                            selected = settings.uploadExpiryDays,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            onSelect = { days -> scope.launch { container.settings.update { it.copy(uploadExpiryDays = days) } } },
+                        )
+                    }
+                    var limit by remember(settings.uploadDownloads) { mutableStateOf(settings.uploadDownloads.toString()) }
+                    val pending = limit.toIntOrNull()?.takeIf { it != settings.uploadDownloads }
+                    ThemedTextField(
+                        value = limit,
+                        onValueChange = { limit = it.filter(Char::isDigit).take(9) },
+                        label = "Default allowed downloads",
+                        placeholder = "0",
+                        supportingText = "0 means unlimited",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        trailing = {
+                            AnimatedVisibility(
+                                visible = pending != null,
+                                enter = scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
+                                exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                            ) {
+                                FilledIconButton(
+                                    onClick = { pending?.let { value -> scope.launch { container.settings.update { it.copy(uploadDownloads = value) } } } },
+                                    shapes = IconButtonDefaults.shapes(),
+                                ) { MciIcon("check", 22.dp, LocalContentColor.current, contentDescription = "Save download limit") }
+                            }
+                        },
+                    )
+                }
+            }
+            SettingsRow(
+                corners = segmentCorners(1, 2),
+                icon = { IconBadge("content-copy", "#3C7CAB", 40.dp) },
+                title = "Copy upload link automatically",
+                subtitle = "When an upload finishes",
+                onClick = { scope.launch { container.settings.update { it.copy(autoCopyLink = !it.autoCopyLink) } } },
+                trailing = {
+                    Switch(
+                        checked = settings.autoCopyLink,
+                        onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(autoCopyLink = value) } } },
+                    )
+                },
+            )
+        }
+    }
+    val notifications: @Composable () -> Unit = {
+        NotificationSettings(container, trayAvailable)
+    }
+    val desktop: @Composable () -> Unit = {
+        GroupLabel("Desktop")
+        SegmentedGroup {
+            SettingsRow(
+                corners = segmentCorners(0, 1),
+                icon = { IconBadge("tray-arrow-down", "#7B6A9E", 40.dp) },
+                title = "Keep running in the tray",
+                subtitle = if (trayAvailable) "Closing the window hides it to the tray. Quit from the tray menu."
+                    else "No system tray found, so closing the window quits.",
+                onClick = { scope.launch { container.settings.update { it.copy(closeToTray = !it.closeToTray) } } },
+                trailing = {
+                    Switch(
+                        checked = settings.closeToTray,
+                        onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(closeToTray = value) } } },
+                    )
+                },
+            )
+        }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -91,120 +216,20 @@ internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, trayA
                 Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                BoxWithConstraints(Modifier.widthIn(max = WideSettingsMaxWidth).fillMaxWidth()) {
+                    // Wide windows put the connection settings beside the preferences.
+                    if (maxWidth >= TwoPaneMinWidth) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            Column(Modifier.weight(1f)) { server(); notifications() }
+                            Column(Modifier.weight(1f)) { look(); uploads(); desktop() }
+                        }
+                    } else {
+                        Column(Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth().align(Alignment.TopCenter)) {
+                            server(); look(); uploads(); notifications(); desktop()
+                        }
+                    }
+                }
                 Column(Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()) {
-                    ServerSettings(container.credentials, container.client, onServerSaved)
-
-                    GroupLabel("Appearance")
-                    ConnectedChoices(
-                        options = listOf(
-                            Choice(ThemeMode.SYSTEM, "System", "theme-light-dark"),
-                            Choice(ThemeMode.LIGHT, "Light", "white-balance-sunny"),
-                            Choice(ThemeMode.DARK, "Dark", "moon-waning-crescent"),
-                        ),
-                        selected = settings.themeMode,
-                        onSelect = { mode -> scope.launch { container.settings.update { it.copy(themeMode = mode) } } },
-                    )
-
-                    GroupLabel("Theme color")
-                    ConnectedChoices(
-                        options = listOf(
-                            Choice(ColorSource.DEFAULT, "Default", "format-color-fill"),
-                            Choice(ColorSource.USER, "Custom", "palette-outline"),
-                        ),
-                        selected = settings.colorSource,
-                        onSelect = { source -> scope.launch { container.settings.update { it.copy(colorSource = source) } } },
-                    )
-                    AnimatedVisibility(
-                        visible = settings.colorSource == ColorSource.USER,
-                        enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                        exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
-                    ) {
-                        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                            SwatchGrid(
-                                selectedHex = settings.userSeed ?: DEFAULT_SEED,
-                                onPick = { hex -> scope.launch { container.settings.update { it.copy(userSeed = hex) } } },
-                                modifier = Modifier.padding(16.dp),
-                            )
-                        }
-                    }
-
-                    GroupLabel("Uploads")
-                    SegmentedGroup {
-                        MorphSurface(onClick = null, corners = segmentCorners(0, 2)) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(
-                                        "Default expiry",
-                                        style = MaterialTheme.typography.labelLargeEmphasized,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(start = 8.dp),
-                                    )
-                                    ConnectedChoices(
-                                        options = ExpiryChoices,
-                                        selected = settings.uploadExpiryDays,
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                        onSelect = { days -> scope.launch { container.settings.update { it.copy(uploadExpiryDays = days) } } },
-                                    )
-                                }
-                                var limit by remember(settings.uploadDownloads) { mutableStateOf(settings.uploadDownloads.toString()) }
-                                val pending = limit.toIntOrNull()?.takeIf { it != settings.uploadDownloads }
-                                ThemedTextField(
-                                    value = limit,
-                                    onValueChange = { limit = it.filter(Char::isDigit).take(9) },
-                                    label = "Default allowed downloads",
-                                    placeholder = "0",
-                                    supportingText = "0 means unlimited",
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    trailing = {
-                                        AnimatedVisibility(
-                                            visible = pending != null,
-                                            enter = scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
-                                            exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
-                                        ) {
-                                            FilledIconButton(
-                                                onClick = { pending?.let { value -> scope.launch { container.settings.update { it.copy(uploadDownloads = value) } } } },
-                                                shapes = IconButtonDefaults.shapes(),
-                                            ) { MciIcon("check", 22.dp, LocalContentColor.current, contentDescription = "Save download limit") }
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                        SettingsRow(
-                            corners = segmentCorners(1, 2),
-                            icon = { IconBadge("content-copy", "#3C7CAB", 40.dp) },
-                            title = "Copy upload link automatically",
-                            subtitle = "When an upload finishes",
-                            onClick = { scope.launch { container.settings.update { it.copy(autoCopyLink = !it.autoCopyLink) } } },
-                            trailing = {
-                                Switch(
-                                    checked = settings.autoCopyLink,
-                                    onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(autoCopyLink = value) } } },
-                                )
-                            },
-                        )
-                    }
-
-                    NotificationSettings(container, trayAvailable)
-
-                    GroupLabel("Desktop")
-                    SegmentedGroup {
-                        SettingsRow(
-                            corners = segmentCorners(0, 1),
-                            icon = { IconBadge("tray-arrow-down", "#7B6A9E", 40.dp) },
-                            title = "Keep running in the tray",
-                            subtitle = if (trayAvailable) "Closing the window hides it to the tray. Quit from the tray menu."
-                                else "No system tray found, so closing the window quits.",
-                            onClick = { scope.launch { container.settings.update { it.copy(closeToTray = !it.closeToTray) } } },
-                            trailing = {
-                                Switch(
-                                    checked = settings.closeToTray,
-                                    onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(closeToTray = value) } } },
-                                )
-                            },
-                        )
-                    }
-
                     Text(
                         "gokapi-desktop v$appVersion",
                         style = MaterialTheme.typography.labelMedium,
@@ -252,3 +277,6 @@ private fun SwatchGrid(selectedHex: String, onPick: (String) -> Unit, modifier: 
         }
     }
 }
+
+/** Widest the two settings columns grow together. */
+private val WideSettingsMaxWidth = 1240.dp

@@ -26,6 +26,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.horizontalScroll
+import com.uzukip.gokapi.ui.components.TwoPaneMinWidth
+import com.uzukip.gokapi.ui.components.FileDetailsPane
+import com.uzukip.gokapi.ui.components.DetailAction
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -150,9 +158,11 @@ private val Filters = listOf(
  * Files home: large rounded title with a settings button, a search pill and
  * filter toggles, live upload cards, then the files as one segmented group.
  * Upload is a medium extended FAB that shrinks to its icon while scrolling
- * down. A file's overflow button opens its action sheet. Long-press a file to
+ * down. Tapping a file downloads it to Downloads/Gokapi, then asks whether to open it; an APK
+ * downloads, then opens the install sheet. A file's overflow button opens its action sheet. Long-press a file to
  * start selecting: rows grow checkboxes, a selection bar covers the title, and
- * a floating toolbar replaces the FAB with bulk share, save, copy, and delete.
+ * a floating toolbar replaces the FAB with bulk share, save, copy, and delete. On tablets the
+ * list sits beside a details pane, and a tap also shows the file there.
  */
 @Composable
 fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: () -> Unit, onOpenSettings: () -> Unit) {
@@ -169,6 +179,16 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
     var legacySave by remember { mutableStateOf<CachedFile?>(null) }
     var legacyBatch by remember { mutableStateOf<List<CachedFile>>(emptyList()) }
     var confirmBulkDelete by remember { mutableStateOf(false) }
+    // A file the default tap just downloaded, waiting for Open or Close.
+    var openPrompt by remember { mutableStateOf<CachedFile?>(null) }
+    val openCached = { item: CachedFile ->
+        val uri = container.transfers.uri(item.file)
+        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, item.metadata.contentType)
+            .apply { clipData = ClipData.newUri(context.contentResolver, item.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { context.startActivity(Intent.createChooser(intent.setType("*/*"), "Open file")) }
+    }
+    // The file in the details pane of the wide (tablet) layout.
+    var focusedId by remember { mutableStateOf<String?>(null) }
     val jobs by remember(context) { WorkManager.getInstance(context).getWorkInfosByTagFlow("uploads") }.collectAsState(initial = emptyList())
     val message by AppMessages.message.collectAsState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -240,11 +260,14 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         context.startActivity(Intent.createChooser(intent, if (uris.size == 1) "Share file" else "Share ${uris.size} files"))
                     }
-                    FileAction.OPEN -> {
-                        val uri = container.transfers.uri(first.file)
-                        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, first.metadata.contentType)
-                            .apply { clipData = ClipData.newUri(context.contentResolver, first.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { context.startActivity(Intent.createChooser(intent.setType("*/*"), "Open file")) }
+                    FileAction.OPEN -> openCached(first)
+                    FileAction.DOWNLOAD -> {
+                        // Android 8 and 9 have no MediaStore Downloads; the file stays in the cache.
+                        if (Build.VERSION.SDK_INT >= 29 && !model.wasSaved(first.metadata)) {
+                            container.transfers.saveToDownloads(first.file, first.metadata)
+                            model.markSaved(first.metadata)
+                        }
+                        openPrompt = first
                     }
                 }
             } catch (e: Exception) { snackbar.showSnackbar(e.message ?: "No app can open this file.") }
@@ -262,6 +285,14 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
 
     // Surface (not a bare background) so text inherits onSurface in both themes
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+      BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Tablets and unfolded foldables show the list and a details pane side by side: a tap
+        // shows the file's details instead of opening it. Narrower screens keep the phone layout.
+        val wide = maxWidth >= TwoPaneMinWidth
+        val focused = if (wide) filtered.firstOrNull { it.id == focusedId } else null
+        val paneWidth = (maxWidth * 0.42f).coerceIn(340.dp, 480.dp)
+        val listEnd = if (wide) paneWidth + 16.dp else 0.dp
+        BackHandler(enabled = focused != null && !state.selecting) { focusedId = null }
         PullToRefreshBox(
             isRefreshing = state.loading && state.files.isNotEmpty(),
             onRefresh = { vibrate(); model.refresh() },
@@ -275,11 +306,17 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
             },
             modifier = Modifier
                 .fillMaxSize()
+                .padding(end = listEnd)
                 .windowInsetsPadding(WindowInsets.statusBars),
         ) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                // Portrait tablets keep the list at a readable width.
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 136.dp),
             ) {
                 item(key = "header") {
@@ -355,7 +392,17 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                                 enabled = state.transferring == null,
                                 selecting = state.selecting,
                                 checked = file.id in state.checked,
-                                onClick = { if (state.selecting) toggle(file) else { vibrate(); model.download(file, FileAction.OPEN) } },
+                                focused = focused?.id == file.id,
+                                onClick = {
+                                    when {
+                                        state.selecting -> toggle(file)
+                                        else -> {
+                                            vibrate()
+                                            if (wide) focusedId = file.id
+                                            model.download(file, if (file.isApk) FileAction.OPEN else FileAction.DOWNLOAD)
+                                        }
+                                    }
+                                },
                                 onLongClick = { toggle(file) },
                                 onMore = { vibrate(); model.select(file) },
                                 onCancel = model::cancelDownload,
@@ -366,7 +413,48 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 }
             }
         }
-        // Surface stretches a direct child to fill it, so the bar sits in its own Box
+        if (wide) {
+            val progress = if (focused != null && state.transferring == focused.id) {
+                if (state.total > 0) (state.bytes.toFloat() / state.total).coerceIn(0f, 1f) else 0f
+            } else null
+            val update = focused != null && newerAppVersion(focused.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")
+            FileDetailsPane(
+                file = focused,
+                primary = focused?.let { file ->
+                    DetailAction(if (file.isApk) "download" else "open-in-new", if (file.isApk) "Install" else "Open") { vibrate(); model.download(file, FileAction.OPEN) }
+                },
+                actions = focused?.let { file ->
+                    listOf(
+                        DetailAction("share-variant-outline", "Share file") { vibrate(); model.download(file, FileAction.SHARE) },
+                        DetailAction("tray-arrow-down", "Save to Downloads") { vibrate(); model.download(file, FileAction.SAVE) },
+                        DetailAction("link-variant", "Copy link") {
+                            vibrate()
+                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", file.link(state.server)))
+                            model.report("Link copied")
+                        },
+                        DetailAction("trash-can-outline", "Delete file", destructive = true) { vibrate(); deleteTarget = file },
+                    )
+                }.orEmpty(),
+                progress = progress,
+                badge = if (update) { { UpdateBadge() } } else null,
+                preview = { file ->
+                    AsyncImage(
+                        model = file.link(state.server, true),
+                        contentDescription = file.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .width(paneWidth)
+                    .fillMaxHeight()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(top = 16.dp, end = 16.dp, bottom = 16.dp),
+            )
+        }
+        // The selection bar spans both panes
         Box(Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = state.selecting,
@@ -398,7 +486,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 16.dp),
+                    .padding(end = 16.dp + listEnd, bottom = 16.dp),
             ) {
                 MediumExtendedFloatingActionButton(
                     text = { Text("Upload") },
@@ -413,7 +501,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it } + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = FloatingToolbarDefaults.ScreenOffset),
+                    .padding(end = listEnd, bottom = FloatingToolbarDefaults.ScreenOffset),
             ) {
                 SelectionToolbar(
                     downloading = state.batchSize > 0,
@@ -435,9 +523,10 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 snackbar,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = 16.dp, end = 16.dp, bottom = 112.dp),
+                    .padding(start = 16.dp, end = 16.dp + listEnd, bottom = 112.dp),
             )
         }
+      }
     }
 
     state.selected?.let { file ->
@@ -452,6 +541,22 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 model.dismiss(); model.report("Link copied")
             },
             onDelete = { deleteTarget = file },
+        )
+    }
+    openPrompt?.let { item ->
+        val saved = Build.VERSION.SDK_INT >= 29
+        AlertDialog(
+            onDismissRequest = { openPrompt = null },
+            icon = { MciIcon("check-circle-outline", 24.dp, MaterialTheme.colorScheme.primary) },
+            title = { Text("Downloaded ${item.metadata.name}") },
+            text = { Text(if (saved) "Saved to Downloads/Gokapi. Open it now?" else "Open it now?") },
+            confirmButton = {
+                BouncyTextButton(onClick = {
+                    openPrompt = null
+                    try { openCached(item) } catch (e: Exception) { model.report(e.message ?: "No app can open this file.") }
+                }) { Text("Open") }
+            },
+            dismissButton = { BouncyTextButton(onClick = { openPrompt = null }) { Text("Close") } },
         )
     }
     deleteTarget?.let { file ->
@@ -809,6 +914,7 @@ private fun FileRow(
     enabled: Boolean,
     selecting: Boolean,
     checked: Boolean,
+    focused: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onMore: () -> Unit,
@@ -818,15 +924,21 @@ private fun FileRow(
     val update = newerAppVersion(file.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")
     // A checked row leaves the segmented group: it rounds out fully and fills with the secondary container
     val color by animateColorAsState(
-        if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        when {
+            checked -> MaterialTheme.colorScheme.secondaryContainer
+            focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.surfaceContainer
+        },
         MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "rowColor",
     )
     MorphSurface(
         onClick = onClick,
         onLongClick = onLongClick,
-        corners = if (checked) Corners(24.dp) else corners,
+        corners = if (checked || focused) Corners(24.dp) else corners,
         color = color,
+        // The file shown in the details pane.
+        border = if (focused) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         contentColor = if (checked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         enabled = enabled,
         modifier = modifier
@@ -867,20 +979,7 @@ private fun FileRow(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (update) {
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(top = 4.dp),
-                            ) {
-                                Text(
-                                    "Update available",
-                                    style = MaterialTheme.typography.labelMediumEmphasized,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                )
-                            }
-                        }
+                        if (update) UpdateBadge(Modifier.padding(top = 4.dp))
                     }
                     when {
                         progress != null -> BouncyIconButton(onClick = onCancel) {
@@ -906,6 +1005,23 @@ private fun FileRow(
                 )
             }
         }
+    }
+}
+
+/** Marks an APK that is a newer build of this app. */
+@Composable
+private fun UpdateBadge(modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = modifier,
+    ) {
+        Text(
+            "Update available",
+            style = MaterialTheme.typography.labelMediumEmphasized,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 

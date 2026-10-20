@@ -68,6 +68,10 @@ fun runApp(container: DesktopContainer, title: String = "Gokapi") {
                     onUpload = { showWindow(); uploadRequests.tryEmit(Unit) },
                     onQuit = { EventQueue.invokeLater(::exitApplication) },
                     onNotificationClicked = { showWindow() },
+                    theme = { content ->
+                        val current by container.settings.settings.collectAsState()
+                        GokapiTheme(current) { content() }
+                    },
                 ),
                 scope,
             )
@@ -94,7 +98,7 @@ fun runApp(container: DesktopContainer, title: String = "Gokapi") {
             visible = visible,
             title = title,
             icon = icon,
-            state = rememberWindowState(size = DpSize(960.dp, 820.dp)),
+            state = rememberWindowState(size = DpSize(1200.dp, 820.dp)),
             onKeyEvent = keys::onKeyEvent,
         ) {
             LaunchedEffect(Unit) { window.minimumSize = Dimension(480, 560) }

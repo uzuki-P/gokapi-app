@@ -32,6 +32,17 @@ topic's JSON stream and checks on each message, with 15-minute polling as a
 fallback. `SeenFiles` keeps the announced IDs; the first check only records a
 baseline, and the app's own uploads are marked seen.
 
+From 840dp wide (`TwoPaneMinWidth`), tablets and desktop windows show the file
+list beside a details pane (`ui/components/FileDetails.kt`, shared by both
+apps). Settings switch to two columns at the same width. Narrower screens keep
+the phone layout. `AppFlowsTest.tabletTapDownloadsAsksAndShowsDetails` forces
+a 1280x800dp tablet on any emulator.
+
+Tapping or clicking a file downloads it to Downloads/Gokapi, then asks whether
+to open it (APKs download, then show the install sheet on Android). A second
+tap in the same session reuses the saved copy. Wide layouts also show the file
+in the details pane.
+
 The main app uses `com.uzukip.gokapi`. The dev flavor uses
 `com.uzukip.gokapi.dev`, has its own Android data, and installs side by side.
 

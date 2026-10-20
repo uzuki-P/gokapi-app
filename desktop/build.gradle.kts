@@ -43,6 +43,7 @@ val sharedSources = listOf(
     "com/uzukip/gokapi/data/server/GokapiFile.kt",
     "com/uzukip/gokapi/ui/components/Bouncy.kt",
     "com/uzukip/gokapi/ui/components/Expressive.kt",
+    "com/uzukip/gokapi/ui/components/FileDetails.kt",
     "com/uzukip/gokapi/ui/components/MciGlyphs.kt",
     "com/uzukip/gokapi/ui/components/Pills.kt",
     "com/uzukip/gokapi/ui/components/PressScale.kt",

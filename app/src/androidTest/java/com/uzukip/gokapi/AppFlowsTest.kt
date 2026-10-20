@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import androidx.compose.ui.test.*
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -118,6 +120,32 @@ class AppFlowsTest {
         device.pressBack()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("2 selected").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithContentDescription("More actions for report.txt").assertIsDisplayed()
+    }
+
+    @Test fun tabletTapDownloadsAsksAndShowsDetails() {
+        // A 1280x800 dp tablet in landscape, whatever the test device is.
+        compose.setContent {
+            DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(DpSize(1280.dp, 800.dp))) {
+                GokapiTheme(com.uzukip.gokapi.data.settings.Settings()) { HomeScreen(container, null, {}, {}) }
+            }
+        }
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("sample.apk").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("No file selected").assertIsDisplayed()
+        // A tap downloads the file, asks whether to open it, and shows it in the pane.
+        compose.onNodeWithText("report.txt").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("Downloaded report.txt").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Close").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Downloaded report.txt").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("No file selected").assertDoesNotExist()
+        compose.onNodeWithText("Open").assertIsDisplayed()
+        compose.onNodeWithText("text/plain").assertIsDisplayed()
+        // The pane scrolls; the actions below the facts may sit under the fold.
+        compose.onNodeWithText("Copy link").assertExists()
+        compose.waitForIdle()
+        shell("screencap -p /sdcard/Download/gokapi-tablet-test.png")
+        // Long-press still starts selecting.
+        compose.onNodeWithText("sample.apk").performTouchInput { longClick() }
+        compose.onNodeWithText("1 selected").assertIsDisplayed()
     }
 
     @Test fun deepLinkResolvesMetadata() {

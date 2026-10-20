@@ -15,6 +15,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.uzukip.gokapi.ui.components.TwoPaneMinWidth
+import com.uzukip.gokapi.ui.components.FileDetailsPane
+import com.uzukip.gokapi.ui.components.DetailAction
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.border
@@ -132,8 +138,9 @@ internal val ContentMaxWidth = 880.dp
 /**
  * Files home, the desktop layout of the Android app's HomeScreen: title with refresh and
  * settings buttons, search and filter toggles, live upload cards, then the files as one
- * segmented group. Clicking a file opens it; its overflow button or a right click opens its
- * menu. Ctrl-click or long-press starts selecting, which swaps the Upload button for a
+ * segmented group. Clicking a file downloads it to Downloads/Gokapi and asks whether to open it;
+ * in a wide window the click also shows it in the details pane. Its overflow button or a right
+ * click opens its menu. Ctrl-click or long-press starts selecting, which swaps the Upload button for a
  * floating toolbar with bulk save, copy, and delete. Dropping files on the window uploads them.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
@@ -155,6 +162,8 @@ internal fun FilesScreen(
     var confirmBulkDelete by remember { mutableStateOf(false) }
     var pendingUploads by remember { mutableStateOf<List<File>>(emptyList()) }
     var dragging by remember { mutableStateOf(false) }
+    // The file in the details pane of the wide layout.
+    var focusedId by remember { mutableStateOf<String?>(null) }
     val windowInfo = LocalWindowInfo.current
 
     LaunchedEffect(model) {
@@ -180,7 +189,11 @@ internal fun FilesScreen(
     }
     keys.handler = { key ->
         when (key) {
-            AppKey.ESCAPE -> if (state.selecting) { model.clearChecked(); true } else false
+            AppKey.ESCAPE -> when {
+                state.selecting -> { model.clearChecked(); true }
+                focusedId != null -> { focusedId = null; true }
+                else -> false
+            }
             AppKey.REFRESH -> { model.refresh(); true }
             AppKey.UPLOAD -> { pickUploads(); true }
             AppKey.SELECT_ALL -> { model.checkAll(filtered); true }
@@ -207,8 +220,14 @@ internal fun FilesScreen(
     }
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dropTarget)) {
+        BoxWithConstraints(Modifier.fillMaxSize().dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dropTarget)) {
+            // Wide windows show the list and a details pane side by side: a click shows the
+            // file's details, a double click opens it. Narrow windows open on a click.
+            val wide = maxWidth >= TwoPaneMinWidth
+            val focused = if (wide) filtered.firstOrNull { it.id == focusedId } else null
+            val paneWidth = (maxWidth * 0.4f).coerceIn(360.dp, 480.dp)
             val listState = rememberLazyListState()
+            Box(Modifier.fillMaxSize().padding(end = if (wide) paneWidth + 24.dp else 0.dp)) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -291,8 +310,13 @@ internal fun FilesScreen(
                                 enabled = state.transferring == null,
                                 selecting = state.selecting,
                                 checked = file.id in state.checked,
+                                focused = focused?.id == file.id,
                                 onClick = {
-                                    if (state.selecting || windowInfo.keyboardModifiers.isCtrlPressed) model.toggle(file) else model.open(file)
+                                    if (state.selecting || windowInfo.keyboardModifiers.isCtrlPressed) model.toggle(file)
+                                    else {
+                                        if (wide) focusedId = file.id
+                                        model.download(file)
+                                    }
                                 },
                                 onLongClick = { model.toggle(file) },
                                 onOpen = { model.open(file) },
@@ -311,6 +335,26 @@ internal fun FilesScreen(
                 adapter = rememberScrollbarAdapter(listState),
                 modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 8.dp, horizontal = 2.dp),
             )
+            }
+            if (wide) {
+                val progress = if (focused != null && state.transferring == focused.id) {
+                    if (state.total > 0) (state.bytes.toFloat() / state.total).coerceIn(0f, 1f) else 0f
+                } else null
+                FileDetailsPane(
+                    file = focused,
+                    primary = focused?.let { file -> DetailAction("open-in-new", "Open") { model.open(file) } },
+                    actions = focused?.let { file ->
+                        listOf(
+                            DetailAction("tray-arrow-down", "Save to Downloads") { model.save(file) },
+                            DetailAction("link-variant", "Copy link") { model.copyLinks(listOf(file)) },
+                            DetailAction("trash-can-outline", "Delete file", destructive = true) { deleteTarget = file },
+                        )
+                    }.orEmpty(),
+                    progress = progress,
+                    preview = { file -> ImagePreview(file, state.server) },
+                    modifier = Modifier.align(Alignment.TopEnd).width(paneWidth).fillMaxHeight().padding(top = 24.dp, end = 24.dp, bottom = 24.dp),
+                )
+            }
 
             AnimatedVisibility(
                 visible = state.selecting,
@@ -337,7 +381,7 @@ internal fun FilesScreen(
                 visible = !state.selecting,
                 enter = scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
                 exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 24.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp + if (wide) paneWidth + 24.dp else 0.dp, bottom = 24.dp),
             ) {
                 MediumExtendedFloatingActionButton(
                     text = { Text("Upload") },
@@ -350,7 +394,7 @@ internal fun FilesScreen(
                 visible = state.selecting,
                 enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it } + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
                 exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it } + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = FloatingToolbarDefaults.ScreenOffset),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(end = if (wide) paneWidth + 24.dp else 0.dp, bottom = FloatingToolbarDefaults.ScreenOffset),
             ) {
                 SelectionToolbar(
                     downloading = state.batchSize > 0,
@@ -362,7 +406,7 @@ internal fun FilesScreen(
             }
             SnackbarHost(
                 snackbar,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(start = 24.dp, end = 24.dp, bottom = 112.dp).widthIn(max = 600.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = 24.dp, end = 24.dp + if (wide) paneWidth + 24.dp else 0.dp, bottom = 112.dp).widthIn(max = 600.dp),
             )
 
             AnimatedVisibility(
@@ -374,6 +418,32 @@ internal fun FilesScreen(
         }
     }
 
+    state.openPrompt?.let { prompt ->
+        AlertDialog(
+            onDismissRequest = model::dismissPrompt,
+            icon = { MciIcon("check-circle-outline", 24.dp, MaterialTheme.colorScheme.primary) },
+            title = { Text("Downloaded ${prompt.metadata.name}") },
+            text = {
+                val renamed = prompt.location.name != prompt.metadata.name
+                Text("Saved to Downloads/Gokapi${if (renamed) " as ${prompt.location.name}" else ""}. Open it now?")
+            },
+            confirmButton = {
+                BouncyButton(onClick = {
+                    model.dismissPrompt()
+                    scope.launch { runCatching { DesktopShell.open(prompt.location) }.onFailure { model.report(it.message ?: "No app can open this file.") } }
+                }) { Text("Open") }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BouncyTextButton(onClick = {
+                        model.dismissPrompt()
+                        scope.launch { runCatching { DesktopShell.open(prompt.location.parentFile) }.onFailure { model.report(it.message ?: "Couldn't open the folder.") } }
+                    }) { Text("Show in folder") }
+                    BouncyTextButton(onClick = model::dismissPrompt) { Text("Close") }
+                }
+            },
+        )
+    }
     deleteTarget?.let { file ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
@@ -656,6 +726,17 @@ private fun FileThumbnail(file: GokapiFile, server: String) {
     }
 }
 
+/** The details pane's image: the whole picture, fitted, or the type badge while it loads. */
+@Composable
+private fun ImagePreview(file: GokapiFile, server: String) {
+    val bitmap = Thumbnails.preview(file.link(server, true)).value
+    if (bitmap != null) {
+        Image(bitmap, contentDescription = file.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+    } else {
+        LoadingIndicator(Modifier.size(48.dp))
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun FileRow(
@@ -666,6 +747,7 @@ private fun FileRow(
     enabled: Boolean,
     selecting: Boolean,
     checked: Boolean,
+    focused: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onOpen: () -> Unit,
@@ -678,7 +760,11 @@ private fun FileRow(
 ) {
     // A checked row leaves the segmented group: it rounds out fully and fills with the secondary container
     val color by animateColorAsState(
-        if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        when {
+            checked -> MaterialTheme.colorScheme.secondaryContainer
+            focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.surfaceContainer
+        },
         MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "rowColor",
     )
@@ -701,8 +787,10 @@ private fun FileRow(
         MorphSurface(
             onClick = onClick,
             onLongClick = onLongClick,
-            corners = if (checked) Corners(24.dp) else corners,
+            corners = if (checked || focused) Corners(24.dp) else corners,
             color = color,
+            // The file shown in the details pane.
+            border = if (focused) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
             contentColor = if (checked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
             enabled = enabled,
             modifier = Modifier.fillMaxWidth().then(if (selecting) Modifier.semantics { selected = checked } else Modifier),
@@ -761,6 +849,11 @@ private fun FileRow(
                 onDismissRequest = { menuOpen = false },
                 offset = pointerOffset ?: DpOffset(0.dp, (-12).dp),
                 shape = MaterialTheme.shapes.large,
+                // The default container matches the file rows; a raised tone, an outline, and a
+                // shadow keep the menu apart from the list behind it.
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 MenuEntry("open-in-new", "Open") { menuOpen = false; onOpen() }
                 MenuEntry("tray-arrow-down", "Save to Downloads") { menuOpen = false; onSave() }

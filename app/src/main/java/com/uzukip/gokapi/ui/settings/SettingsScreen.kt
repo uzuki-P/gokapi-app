@@ -9,6 +9,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import com.uzukip.gokapi.ui.components.TwoPaneMinWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -64,7 +67,7 @@ import com.uzukip.gokapi.ui.components.segmentCorners
 import com.uzukip.gokapi.ui.theme.PRESET_SEEDS
 import kotlinx.coroutines.launch
 
-/** Server, appearance, theme color, and haptics settings. */
+/** Server, appearance, theme color, haptics, and transfer settings; two columns on tablets. */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
@@ -90,76 +93,98 @@ fun SettingsScreen(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            ServerSettings(container)
-
-            GroupLabel("Appearance")
-            ConnectedChoices(
-                options = listOf(
-                    Choice(ThemeMode.SYSTEM, "System", "theme-light-dark"),
-                    Choice(ThemeMode.LIGHT, "Light", "white-balance-sunny"),
-                    Choice(ThemeMode.DARK, "Dark", "moon-waning-crescent"),
-                ),
-                selected = settings.themeMode,
-                onSelect = { scope.launch { container.settings.setThemeMode(it) } },
-            )
-
-            GroupLabel("Theme color")
-            ConnectedChoices(
-                options = listOf(
-                    Choice(ColorSource.DEFAULT, "Default", "format-color-fill"),
-                    Choice(ColorSource.WALLPAPER, "Wallpaper", "wallpaper"),
-                    Choice(ColorSource.USER, "Custom", "palette-outline"),
-                ),
-                selected = settings.colorSource,
-                onSelect = { scope.launch { container.settings.setColorSource(it) } },
-            )
-            AnimatedVisibility(
-                visible = settings.colorSource == ColorSource.WALLPAPER &&
-                    android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S,
-            ) {
-                Text(
-                    "Wallpaper colors are only available on Android 12 and above. " +
-                        "Using the default color instead.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+            val appearance: @Composable () -> Unit = {
+                GroupLabel("Appearance")
+                ConnectedChoices(
+                    options = listOf(
+                        Choice(ThemeMode.SYSTEM, "System", "theme-light-dark"),
+                        Choice(ThemeMode.LIGHT, "Light", "white-balance-sunny"),
+                        Choice(ThemeMode.DARK, "Dark", "moon-waning-crescent"),
+                    ),
+                    selected = settings.themeMode,
+                    onSelect = { scope.launch { container.settings.setThemeMode(it) } },
                 )
-            }
-            AnimatedVisibility(
-                visible = settings.colorSource == ColorSource.USER,
-                enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
-                    fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) +
-                    fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
-            ) {
-                Surface(
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
+
+                GroupLabel("Theme color")
+                ConnectedChoices(
+                    options = listOf(
+                        Choice(ColorSource.DEFAULT, "Default", "format-color-fill"),
+                        Choice(ColorSource.WALLPAPER, "Wallpaper", "wallpaper"),
+                        Choice(ColorSource.USER, "Custom", "palette-outline"),
+                    ),
+                    selected = settings.colorSource,
+                    onSelect = { scope.launch { container.settings.setColorSource(it) } },
+                )
+                AnimatedVisibility(
+                    visible = settings.colorSource == ColorSource.WALLPAPER &&
+                        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S,
                 ) {
-                    SwatchGrid(
-                        selectedHex = settings.userSeed ?: com.uzukip.gokapi.ui.theme.DEFAULT_SEED,
-                        onPick = { hex -> scope.launch { container.settings.setUserSeed(hex) } },
-                        modifier = Modifier.padding(16.dp),
+                    Text(
+                        "Wallpaper colors are only available on Android 12 and above. " +
+                            "Using the default color instead.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = settings.colorSource == ColorSource.USER,
+                    enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                        fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) +
+                        fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                ) {
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                    ) {
+                        SwatchGrid(
+                            selectedHex = settings.userSeed ?: com.uzukip.gokapi.ui.theme.DEFAULT_SEED,
+                            onPick = { hex -> scope.launch { container.settings.setUserSeed(hex) } },
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+            }
+            val haptics: @Composable () -> Unit = {
+                GroupLabel("Haptics")
+                SegmentedGroup {
+                    SettingsRow(
+                        corners = segmentCorners(0, 1),
+                        icon = { IconBadge("vibrate", "#7B6A9E", 40.dp) },
+                        title = "Vibration strength",
+                        subtitle = describeVibration(settings),
+                        onClick = { showVibrationDialog = true },
                     )
                 }
             }
-
-            GroupLabel("Haptics")
-            SegmentedGroup {
-                SettingsRow(
-                    corners = segmentCorners(0, 1),
-                    icon = { IconBadge("vibrate", "#7B6A9E", 40.dp) },
-                    title = "Vibration strength",
-                    subtitle = describeVibration(settings),
-                    onClick = { showVibrationDialog = true },
-                )
+            BoxWithConstraints(Modifier.widthIn(max = 1240.dp).fillMaxWidth()) {
+                // Tablets put the server and transfer settings beside the look and feel.
+                if (maxWidth >= TwoPaneMinWidth) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            ServerSettings(container)
+                            TransferSettings(container, settings)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            appearance()
+                            haptics()
+                        }
+                    }
+                } else {
+                    Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().align(Alignment.TopCenter)) {
+                        ServerSettings(container)
+                        appearance()
+                        haptics()
+                        TransferSettings(container, settings)
+                    }
+                }
             }
-
-            TransferSettings(container, settings)
 
             Text(
                 "gokapi-android v${com.uzukip.gokapi.BuildConfig.VERSION_NAME}",

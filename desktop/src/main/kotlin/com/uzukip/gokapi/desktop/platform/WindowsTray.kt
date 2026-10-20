@@ -1,8 +1,7 @@
 package com.uzukip.gokapi.desktop.platform
 
 import java.awt.EventQueue
-import java.awt.MenuItem
-import java.awt.PopupMenu
+import java.awt.MouseInfo
 import java.awt.SystemTray
 import java.awt.TrayIcon
 import java.awt.event.MouseAdapter
@@ -13,15 +12,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Notification-area icon through AWT `SystemTray`, with a native popup menu. A left click
- * shows or hides the window; a right click opens the menu. Notifications show as
- * Windows toasts from the icon. Adapted from metrolist-desktop's
- * WindowsTray, which draws its own themed menu for its longer player menu.
+ * Notification-area icon through AWT `SystemTray`, with the menu drawn by [WindowsTrayMenu]
+ * in the app's theme. A left click shows or hides the window; a right click opens the menu.
+ * Notifications show as Windows toasts from the icon. Adapted from metrolist-desktop's
+ * WindowsTray.
  */
 class WindowsTray(private val model: AppTrayModel) : AppTray {
     private val availableState = MutableStateFlow(false)
     override val available: StateFlow<Boolean> = availableState.asStateFlow()
     private var trayIcon: TrayIcon? = null
+    private val menu = WindowsTrayMenu(model)
 
     override fun start() {
         if (trayIcon != null) return
@@ -30,14 +30,7 @@ class WindowsTray(private val model: AppTrayModel) : AppTray {
                 if (!SystemTray.isSupported()) return@invokeLater
                 val variants = ICON_SIZES.mapNotNull(TrayIconImages::render)
                 if (variants.isEmpty()) return@invokeLater
-                val toggle = MenuItem()
-                val menu = PopupMenu().apply {
-                    add(toggle.apply { addActionListener { model.onToggleWindow() } })
-                    add(MenuItem("Upload files…").apply { addActionListener { model.onUpload() } })
-                    addSeparator()
-                    add(MenuItem("Quit").apply { addActionListener { model.onQuit() } })
-                }
-                val icon = TrayIcon(BaseMultiResolutionImage(*variants.toTypedArray()), model.title, menu).apply {
+                val icon = TrayIcon(BaseMultiResolutionImage(*variants.toTypedArray()), model.title).apply {
                     isImageAutoSize = true
                     // A click on a notification balloon.
                     addActionListener { model.onNotificationClicked() }
@@ -46,13 +39,15 @@ class WindowsTray(private val model: AppTrayModel) : AppTray {
                             if (e.button == MouseEvent.BUTTON1 && e.clickCount == 1) model.onToggleWindow()
                         }
 
-                        // Label the item for the current state just before the menu opens.
-                        override fun mousePressed(e: MouseEvent) {
-                            toggle.label = if (model.windowVisible.value) "Hide window" else "Show window"
+                        // Windows reports the popup trigger on release.
+                        override fun mouseReleased(e: MouseEvent) {
+                            if (e.isPopupTrigger || e.button == MouseEvent.BUTTON3) {
+                                // Tray icon events carry screen coordinates.
+                                menu.toggle(MouseInfo.getPointerInfo()?.location ?: e.point)
+                            }
                         }
                     })
                 }
-                toggle.label = if (model.windowVisible.value) "Hide window" else "Show window"
                 SystemTray.getSystemTray().add(icon)
                 trayIcon = icon
                 availableState.value = true
@@ -70,7 +65,10 @@ class WindowsTray(private val model: AppTrayModel) : AppTray {
         availableState.value = false
         val icon = trayIcon ?: return
         trayIcon = null
-        EventQueue.invokeLater { runCatching { SystemTray.getSystemTray().remove(icon) } }
+        EventQueue.invokeLater {
+            menu.close()
+            runCatching { SystemTray.getSystemTray().remove(icon) }
+        }
     }
 
     private companion object {

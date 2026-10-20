@@ -27,7 +27,8 @@ internal data class FilesState(
     val selecting get() = checked.isNotEmpty()
     val checkedFiles get() = files.filter { it.id in checked }
 }
-internal enum class FileAction { OPEN, SHARE, SAVE }
+/** DOWNLOAD saves to Downloads/Gokapi, then asks whether to open the file: the default tap. */
+internal enum class FileAction { OPEN, SHARE, SAVE, DOWNLOAD }
 internal class CachedFile(val file: File, val metadata: GokapiFile)
 internal class CachedAction(val items: List<CachedFile>, val action: FileAction)
 
@@ -38,6 +39,11 @@ internal class FilesViewModel(private val container: AppContainer) : ViewModel()
     val cachedActions = actions.receiveAsFlow()
     private var transfer: Job? = null
     private var refreshJob: Job? = null
+
+    // Files already saved to Downloads in this session, so tapping again doesn't save a duplicate.
+    private val savedToDownloads = mutableSetOf<String>()
+    fun wasSaved(file: GokapiFile) = file.id in savedToDownloads
+    fun markSaved(file: GokapiFile) { savedToDownloads += file.id }
 
     init { refresh() }
     fun dismiss() { mutableState.value = state.value.copy(selected = null, apk = null) }

@@ -1,5 +1,6 @@
 package com.uzukip.gokapi.desktop.platform
 
+import androidx.compose.runtime.Composable
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
@@ -33,6 +34,8 @@ class AppTrayModel(
     val onUpload: () -> Unit,
     val onQuit: () -> Unit,
     val onNotificationClicked: () -> Unit,
+    /** Wraps the Windows tray menu in the app's theme. */
+    val theme: @Composable (@Composable () -> Unit) -> Unit = { it() },
 )
 
 object AppTrays {

@@ -27,10 +27,14 @@ internal data class FilesState(
     /** Position in a multi-file download, 1-based, and its size; 0 when idle. */
     val batchIndex: Int = 0, val batchSize: Int = 0,
     val uploads: List<UploadJob> = emptyList(),
+    /** A file the default click just downloaded, waiting for Open, Show in folder, or Close. */
+    val openPrompt: SavedFile? = null,
 ) {
     val selecting get() = checked.isNotEmpty()
     val checkedFiles get() = files.filter { it.id in checked }
 }
+
+internal class SavedFile(val metadata: GokapiFile, val location: File)
 
 internal data class UploadJob(val id: String, val name: String, val size: Long, val sent: Long = 0)
 
@@ -95,8 +99,29 @@ internal class FilesModel(private val container: DesktopContainer, private val s
     /** Downloads [file] into Downloads/Gokapi. */
     fun save(file: GokapiFile) = single(file) { c ->
         val target = fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))
+        saved[file.id] = target to target.length()
         report("Saved ${target.name} to Downloads/Gokapi", target.parentFile)
     }
+
+    // Copies saved to Downloads in this session, so clicking again doesn't download a duplicate.
+    // The size is the one downloaded, so a copy edited or deleted since then downloads again.
+    private val saved = java.util.concurrent.ConcurrentHashMap<String, Pair<File, Long>>()
+
+    /** The default click: saves [file] to Downloads/Gokapi, or reuses this session's copy, then asks to open it. */
+    fun download(file: GokapiFile) {
+        val existing = saved[file.id]?.takeIf { (copy, size) -> copy.isFile && copy.length() == size }?.first
+        if (existing != null) {
+            mutableState.update { it.copy(openPrompt = SavedFile(file, existing)) }
+            return
+        }
+        single(file) { c ->
+            val target = fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))
+            saved[file.id] = target to target.length()
+            mutableState.update { it.copy(openPrompt = SavedFile(file, target)) }
+        }
+    }
+
+    fun dismissPrompt() = mutableState.update { it.copy(openPrompt = null) }
 
     private fun single(file: GokapiFile, action: suspend (ServerCredentials) -> Unit) {
         if (transfer?.isActive == true) return
