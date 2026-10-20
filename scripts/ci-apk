@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Wait for the android-apk GitHub Actions build of the pushed HEAD, save the
-# APK in _apk/, delete the GitHub artifact, and share the APK via Gokapi; the
-# share link prints last. Reuses the build the push started; dispatches one
-# when there is none, for example after a docs-only push.
+# Wait for the android-apk GitHub Actions build of the pushed HEAD, then
+# fetch it with ci-fetch (dotconfig): the APK lands in _apk/, the GitHub
+# artifact is deleted, and the Gokapi share link prints last. Reuses the
+# build the push started; dispatches one when there is none, for example
+# after a docs-only push.
 set -euo pipefail
 
 workflow=android-apk.yml
@@ -33,23 +34,4 @@ if [[ -z "$run_id" ]]; then
 fi
 
 gh run watch "$run_id" --exit-status
-
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-gh run download "$run_id" --dir "$out"
-mkdir -p _apk
-apk=""
-while IFS= read -r -d '' file; do
-  apk="_apk/$(basename "$file")"
-  cp "$file" "$apk"
-  echo "Saved: $apk"
-done < <(find "$out" -type f -name '*.apk' -print0)
-[[ -n "$apk" ]] || { echo "Run $run_id has no APK artifact." >&2; exit 1; }
-
-# The local copy is the keeper; drop the GitHub artifact so it stops using
-# Actions storage.
-for id in $(gh api "repos/{owner}/{repo}/actions/runs/$run_id/artifacts" --jq '.artifacts[].id'); do
-  gh api --silent -X DELETE "repos/{owner}/{repo}/actions/artifacts/$id"
-done
-
-~/docker/files/bin/share "$(pwd)/$apk"
+ci-fetch --run "$run_id" "$PWD"
