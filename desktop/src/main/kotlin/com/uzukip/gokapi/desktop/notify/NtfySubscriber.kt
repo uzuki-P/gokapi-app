@@ -4,9 +4,11 @@ import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -37,23 +39,35 @@ class NtfySubscriber(
     suspend fun stream(topicUrl: String, secret: String, onOpen: () -> Unit, onMessage: suspend (String) -> Unit) {
         val request = Request.Builder().url(streamUrl(topicUrl)).header("Authorization", authorization(secret)).build()
         val call = http.newCall(request)
-        val cancel = currentCoroutineContext().job.invokeOnCompletion { call.cancel() }
-        try {
-            withContext(Dispatchers.IO) {
-                call.execute().use { response ->
-                    if (response.code == 401 || response.code == 403) throw NtfyAccessDenied()
-                    if (!response.isSuccessful) throw IOException("ntfy returned HTTP ${response.code}.")
-                    onOpen()
-                    val source = response.body?.source() ?: return@use
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val line = source.readUtf8Line() ?: break
-                        messageBody(line)?.let { onMessage(it) }
+        // The stream blocks in a socket read, which coroutine cancellation can't interrupt.
+        // A sibling that waits for cancellation closes the call, so the read fails at once.
+        // (Job.invokeOnCompletion only fires after the job finishes, which the blocked read
+        // prevents, so it kept Quit from ending the process.)
+        coroutineScope {
+            val closer = launch {
+                try { awaitCancellation() } finally { call.cancel() }
+            }
+            try {
+                withContext(Dispatchers.IO) {
+                    call.execute().use { response ->
+                        if (response.code == 401 || response.code == 403) throw NtfyAccessDenied()
+                        if (!response.isSuccessful) throw IOException("ntfy returned HTTP ${response.code}.")
+                        onOpen()
+                        val source = response.body?.source() ?: return@use
+                        while (true) {
+                            ensureActive()
+                            val line = source.readUtf8Line() ?: break
+                            messageBody(line)?.let { onMessage(it) }
+                        }
                     }
                 }
+            } catch (e: IOException) {
+                // A read failed by the closer above is a cancellation, not a network error.
+                currentCoroutineContext().ensureActive()
+                throw e
+            } finally {
+                closer.cancel()
             }
-        } finally {
-            cancel.dispose()
         }
     }
 

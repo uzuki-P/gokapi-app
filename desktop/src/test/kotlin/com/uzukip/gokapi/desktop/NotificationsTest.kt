@@ -13,7 +13,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
@@ -72,6 +74,23 @@ class NotificationsTest {
         assertEquals("Bearer tk_secret", request.getHeader("Authorization"))
         assertTrue(opened)
         assertEquals(listOf("hello"), messages)
+        server.shutdown()
+    }
+
+    @Test
+    fun cancellingAStalledStreamReturnsPromptly() = runBlocking {
+        // A server that accepts the request and never answers, like a quiet ntfy stream.
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE))
+        server.start()
+        val job = launch(Dispatchers.Default) {
+            NtfySubscriber().stream(server.url("/gokapi-uploads").toString(), "tk", onOpen = {}) {}
+        }
+        server.takeRequest()
+        val started = System.nanoTime()
+        job.cancel()
+        withTimeout(3_000) { job.join() }
+        assertTrue("cancel took too long", System.nanoTime() - started < 2_000_000_000L)
         server.shutdown()
     }
 

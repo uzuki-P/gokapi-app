@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlin.concurrent.thread
 import org.jetbrains.skia.Image
 
 fun main() = runApp(DesktopContainer())
@@ -48,6 +49,8 @@ fun runApp(container: DesktopContainer, title: String = "Gokapi") {
         BitmapPainter(Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap())
     }
     application {
+        // Quit from the tray, or closing the window without the tray, ends the whole process.
+        val quit = remember { { quitApp(::exitApplication) } }
         val settings by container.settings.settings.collectAsState()
         val keys = remember { KeyActions() }
         val scope = rememberCoroutineScope()
@@ -66,7 +69,7 @@ fun runApp(container: DesktopContainer, title: String = "Gokapi") {
                     windowVisible = windowVisible,
                     onToggleWindow = { if (windowVisible.value) windowVisible.value = false else showWindow() },
                     onUpload = { showWindow(); uploadRequests.tryEmit(Unit) },
-                    onQuit = { EventQueue.invokeLater(::exitApplication) },
+                    onQuit = { EventQueue.invokeLater(quit) },
                     onNotificationClicked = { showWindow() },
                     theme = { content ->
                         val current by container.settings.settings.collectAsState()
@@ -94,7 +97,7 @@ fun runApp(container: DesktopContainer, title: String = "Gokapi") {
         Window(
             // Hide to the tray only while the tray icon is showing, so the app never keeps
             // running with no way back to it.
-            onCloseRequest = { if (settings.closeToTray && tray.available.value) windowVisible.value = false else exitApplication() },
+            onCloseRequest = { if (settings.closeToTray && tray.available.value) windowVisible.value = false else quit() },
             visible = visible,
             title = title,
             icon = icon,
@@ -108,6 +111,20 @@ fun runApp(container: DesktopContainer, title: String = "Gokapi") {
             }
         }
     }
+}
+
+/**
+ * Ends the app: [exitApplication] closes the window and runs the effects' cleanup (tray, watcher,
+ * single-instance lock), after which Compose exits the process. A daemon watchdog makes sure of
+ * it: if cleanup or a stuck network read keeps the JVM up for 3 s, it exits anyway, so Quit never
+ * leaves Gokapi running in the background with no tray icon.
+ */
+private fun quitApp(exitApplication: () -> Unit) {
+    thread(name = "gokapi-quit-watchdog", isDaemon = true) {
+        Thread.sleep(3_000)
+        Runtime.getRuntime().halt(0)
+    }
+    exitApplication()
 }
 
 /** Brings [window] to the front when the tray or a second launch asks for it (from metrolist-desktop). */
