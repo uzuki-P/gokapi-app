@@ -131,7 +131,7 @@ update-exe:
     if (-not $staged) { throw "build-exe left no staged installer for {{desktop_version}} in _apk." }
     & .\scripts\update-installed-exe.ps1 -Installer $staged.FullName -Version "{{desktop_version}}"
 
-# Build the EXE on GitHub Actions for the pushed HEAD, save it in _apk/, and share it via Gokapi.
+# Wait for the GitHub Actions EXE build of the pushed HEAD, save it in _apk/, and share it via Gokapi.
 [linux]
 ci-exe:
     bash scripts/ci-exe
