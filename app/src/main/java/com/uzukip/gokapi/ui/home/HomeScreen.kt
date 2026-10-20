@@ -158,11 +158,11 @@ private val Filters = listOf(
  * Files home: large rounded title with a settings button, a search pill and
  * filter toggles, live upload cards, then the files as one segmented group.
  * Upload is a medium extended FAB that shrinks to its icon while scrolling
- * down. Tapping a file downloads it to Downloads/Gokapi, then asks whether to open it; an APK
- * downloads, then opens the install sheet. A file's overflow button opens its action sheet. Long-press a file to
+ * down. Tapping a file shows its details: full screen on phones, in a pane beside the list on
+ * tablets. Download there saves it to Downloads/Gokapi, then asks whether to open it; Install
+ * downloads an APK, then opens the install sheet. A file's overflow button opens its action sheet. Long-press a file to
  * start selecting: rows grow checkboxes, a selection bar covers the title, and
- * a floating toolbar replaces the FAB with bulk share, save, copy, and delete. On tablets the
- * list sits beside a details pane, and a tap also shows the file there.
+ * a floating toolbar replaces the FAB with bulk share, save, copy, and delete.
  */
 @Composable
 fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: () -> Unit, onOpenSettings: () -> Unit) {
@@ -179,7 +179,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
     var legacySave by remember { mutableStateOf<CachedFile?>(null) }
     var legacyBatch by remember { mutableStateOf<List<CachedFile>>(emptyList()) }
     var confirmBulkDelete by remember { mutableStateOf(false) }
-    // A file the default tap just downloaded, waiting for Open or Close.
+    // A file Download just saved, waiting for Open or Close.
     var openPrompt by remember { mutableStateOf<CachedFile?>(null) }
     val openCached = { item: CachedFile ->
         val uri = container.transfers.uri(item.file)
@@ -187,7 +187,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
             .apply { clipData = ClipData.newUri(context.contentResolver, item.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { context.startActivity(Intent.createChooser(intent.setType("*/*"), "Open file")) }
     }
-    // The file in the details pane of the wide (tablet) layout.
+    // The file in the details view: a pane beside the list on tablets, full screen on phones.
     var focusedId by remember { mutableStateOf<String?>(null) }
     val jobs by remember(context) { WorkManager.getInstance(context).getWorkInfosByTagFlow("uploads") }.collectAsState(initial = emptyList())
     val message by AppMessages.message.collectAsState()
@@ -286,10 +286,10 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
     // Surface (not a bare background) so text inherits onSurface in both themes
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
       BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Tablets and unfolded foldables show the list and a details pane side by side: a tap
-        // shows the file's details instead of opening it. Narrower screens keep the phone layout.
+        // Tablets and unfolded foldables show the list and a details pane side by side.
+        // Narrower screens cover the list with the details instead.
         val wide = maxWidth >= TwoPaneMinWidth
-        val focused = if (wide) filtered.firstOrNull { it.id == focusedId } else null
+        val focused = filtered.firstOrNull { it.id == focusedId }
         val paneWidth = (maxWidth * 0.42f).coerceIn(340.dp, 480.dp)
         val listEnd = if (wide) paneWidth + 16.dp else 0.dp
         BackHandler(enabled = focused != null && !state.selecting) { focusedId = null }
@@ -396,11 +396,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                                 onClick = {
                                     when {
                                         state.selecting -> toggle(file)
-                                        else -> {
-                                            vibrate()
-                                            if (wide) focusedId = file.id
-                                            model.download(file, if (file.isApk) FileAction.OPEN else FileAction.DOWNLOAD)
-                                        }
+                                        else -> { vibrate(); focusedId = file.id }
                                     }
                                 },
                                 onLongClick = { toggle(file) },
@@ -413,39 +409,47 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 }
             }
         }
-        if (wide) {
-            val progress = if (focused != null && state.transferring == focused.id) {
+        val details = @Composable { file: GokapiFile?, modifier: Modifier ->
+            val progress = if (file != null && state.transferring == file.id) {
                 if (state.total > 0) (state.bytes.toFloat() / state.total).coerceIn(0f, 1f) else 0f
             } else null
-            val update = focused != null && newerAppVersion(focused.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")
+            val update = file != null && newerAppVersion(file.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")
             FileDetailsPane(
-                file = focused,
-                primary = focused?.let { file ->
-                    DetailAction(if (file.isApk) "download" else "open-in-new", if (file.isApk) "Install" else "Open") { vibrate(); model.download(file, FileAction.OPEN) }
+                file = file,
+                primary = file?.let {
+                    if (it.isApk) DetailAction("download", "Install") { vibrate(); model.download(it, FileAction.OPEN) }
+                    else DetailAction("download", "Download") { vibrate(); model.download(it, FileAction.DOWNLOAD) }
                 },
-                actions = focused?.let { file ->
-                    listOf(
-                        DetailAction("share-variant-outline", "Share file") { vibrate(); model.download(file, FileAction.SHARE) },
-                        DetailAction("tray-arrow-down", "Save to Downloads") { vibrate(); model.download(file, FileAction.SAVE) },
+                actions = file?.let {
+                    listOfNotNull(
+                        if (it.isApk) null else DetailAction("open-in-new", "Open") { vibrate(); model.download(it, FileAction.OPEN) },
+                        DetailAction("share-variant-outline", "Share file") { vibrate(); model.download(it, FileAction.SHARE) },
+                        if (it.isApk) DetailAction("tray-arrow-down", "Save to Downloads") { vibrate(); model.download(it, FileAction.SAVE) } else null,
                         DetailAction("link-variant", "Copy link") {
                             vibrate()
-                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", file.link(state.server)))
+                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", it.link(state.server)))
                             model.report("Link copied")
                         },
-                        DetailAction("trash-can-outline", "Delete file", destructive = true) { vibrate(); deleteTarget = file },
+                        DetailAction("trash-can-outline", "Delete file", destructive = true) { vibrate(); deleteTarget = it },
                     )
                 }.orEmpty(),
                 progress = progress,
                 badge = if (update) { { UpdateBadge() } } else null,
-                preview = { file ->
+                preview = { shown ->
                     AsyncImage(
-                        model = file.link(state.server, true),
-                        contentDescription = file.name,
+                        model = shown.link(state.server, true),
+                        contentDescription = shown.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize(),
                     )
                 },
-                modifier = Modifier
+                modifier = modifier,
+            )
+        }
+        if (wide) {
+            details(
+                focused,
+                Modifier
                     .align(Alignment.TopEnd)
                     .width(paneWidth)
                     .fillMaxHeight()
@@ -453,6 +457,18 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(top = 16.dp, end = 16.dp, bottom = 16.dp),
             )
+        }
+        // Phones show the details full screen, over the list.
+        AnimatedVisibility(
+            visible = !wide && focused != null,
+            enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it / 4 } + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it / 4 } + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            // Keep the last file while the view slides out
+            val last = remember { mutableStateOf<GokapiFile?>(null) }
+            focused?.let { last.value = it }
+            PhoneDetails(onBack = { vibrate(); focusedId = null }) { details(last.value, Modifier.fillMaxSize()) }
         }
         // The selection bar spans both panes
         Box(Modifier.fillMaxSize()) {
@@ -481,7 +497,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
         }
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars)) {
             AnimatedVisibility(
-                visible = !state.selecting,
+                visible = !state.selecting && (wide || focused == null),
                 enter = scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
                 exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
                 modifier = Modifier
@@ -602,6 +618,27 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
         )
     }
     if (uploadUris.isNotEmpty()) UploadSheet(container, uploadUris, onDismiss = { uploadUris = emptyList() }, onQueued = { uploadUris = emptyList(); model.report("Upload queued") })
+}
+
+/** Full-screen details on phones: a back button above the shared details pane. */
+@Composable
+private fun PhoneDetails(onBack: () -> Unit, content: @Composable () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars),
+        ) {
+            Row(Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                BouncyIconButton(onClick = onBack) {
+                    MciIcon("arrow-left", 24.dp, LocalContentColor.current, contentDescription = "Back")
+                }
+                Text("Details", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 4.dp))
+            }
+            Box(Modifier.weight(1f).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) { content() }
+        }
+    }
 }
 
 /**

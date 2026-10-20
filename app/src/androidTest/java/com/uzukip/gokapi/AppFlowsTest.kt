@@ -105,6 +105,27 @@ class AppFlowsTest {
         shell("screencap -p /sdcard/Download/gokapi-files-test.png")
     }
 
+    @Test fun phoneTapShowsDetailsFullScreen() {
+        compose.setContent {
+            DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(DpSize(400.dp, 860.dp))) {
+                GokapiTheme(com.uzukip.gokapi.data.settings.Settings()) { HomeScreen(container, null, {}, {}) }
+            }
+        }
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("sample.apk").fetchSemanticsNodes().isNotEmpty() }
+        // A tap covers the list with the file's details instead of downloading it.
+        compose.onNodeWithText("report.txt").performClick()
+        compose.onNodeWithText("text/plain").assertIsDisplayed()
+        compose.onNodeWithText("Download").assertIsDisplayed()
+        compose.onNodeWithText("Downloaded report.txt").assertDoesNotExist()
+        compose.onNodeWithText("Upload").assertDoesNotExist()
+        compose.waitForIdle()
+        shell("screencap -p /sdcard/Download/gokapi-phone-details-test.png")
+        // Back returns to the list.
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("text/plain").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("sample.apk").assertIsDisplayed()
+    }
+
     @Test fun multiSelectConfirmsBulkDelete() {
         compose.setContent { GokapiTheme(com.uzukip.gokapi.data.settings.Settings()) { HomeScreen(container, null, {}, {}) } }
         compose.waitUntil(15_000) { compose.onAllNodesWithText("sample.apk").fetchSemanticsNodes().isNotEmpty() }
@@ -122,7 +143,7 @@ class AppFlowsTest {
         compose.onNodeWithContentDescription("More actions for report.txt").assertIsDisplayed()
     }
 
-    @Test fun tabletTapDownloadsAsksAndShowsDetails() {
+    @Test fun tabletTapShowsDetailsThenDownloads() {
         // A 1280x800 dp tablet in landscape, whatever the test device is.
         compose.setContent {
             DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(DpSize(1280.dp, 800.dp))) {
@@ -131,14 +152,15 @@ class AppFlowsTest {
         }
         compose.waitUntil(15_000) { compose.onAllNodesWithText("sample.apk").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("No file selected").assertIsDisplayed()
-        // A tap downloads the file, asks whether to open it, and shows it in the pane.
+        // A tap only shows the file in the pane; Download there saves it and asks whether to open it.
         compose.onNodeWithText("report.txt").performClick()
+        compose.onNodeWithText("No file selected").assertDoesNotExist()
+        compose.onNodeWithText("text/plain").assertIsDisplayed()
+        compose.onNodeWithText("Downloaded report.txt").assertDoesNotExist()
+        compose.onNodeWithText("Download").performClick()
         compose.waitUntil(15_000) { compose.onAllNodesWithText("Downloaded report.txt").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Close").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Downloaded report.txt").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("No file selected").assertDoesNotExist()
-        compose.onNodeWithText("Open").assertIsDisplayed()
-        compose.onNodeWithText("text/plain").assertIsDisplayed()
         // The pane scrolls; the actions below the facts may sit under the fold.
         compose.onNodeWithText("Copy link").assertExists()
         compose.waitForIdle()

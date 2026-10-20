@@ -138,8 +138,9 @@ internal val ContentMaxWidth = 880.dp
 /**
  * Files home, the desktop layout of the Android app's HomeScreen: title with refresh and
  * settings buttons, search and filter toggles, live upload cards, then the files as one
- * segmented group. Clicking a file downloads it to Downloads/Gokapi and asks whether to open it;
- * in a wide window the click also shows it in the details pane. Its overflow button or a right
+ * segmented group. In a wide window clicking a file shows it in the details pane, whose Download
+ * saves it to Downloads/Gokapi and asks whether to open it; a narrow window has no pane, so the
+ * click downloads right away. Its overflow button or a right
  * click opens its menu. Ctrl-click or long-press starts selecting, which swaps the Upload button for a
  * floating toolbar with bulk save, copy, and delete. Dropping files on the window uploads them.
  */
@@ -222,7 +223,7 @@ internal fun FilesScreen(
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dropTarget)) {
             // Wide windows show the list and a details pane side by side: a click shows the
-            // file's details, a double click opens it. Narrow windows open on a click.
+            // file's details. Narrow windows download on a click.
             val wide = maxWidth >= TwoPaneMinWidth
             val focused = if (wide) filtered.firstOrNull { it.id == focusedId } else null
             val paneWidth = (maxWidth * 0.4f).coerceIn(360.dp, 480.dp)
@@ -313,10 +314,8 @@ internal fun FilesScreen(
                                 focused = focused?.id == file.id,
                                 onClick = {
                                     if (state.selecting || windowInfo.keyboardModifiers.isCtrlPressed) model.toggle(file)
-                                    else {
-                                        if (wide) focusedId = file.id
-                                        model.download(file)
-                                    }
+                                    else if (wide) focusedId = file.id
+                                    else model.download(file)
                                 },
                                 onLongClick = { model.toggle(file) },
                                 onOpen = { model.open(file) },
@@ -342,10 +341,10 @@ internal fun FilesScreen(
                 } else null
                 FileDetailsPane(
                     file = focused,
-                    primary = focused?.let { file -> DetailAction("open-in-new", "Open") { model.open(file) } },
+                    primary = focused?.let { file -> DetailAction("download", "Download") { model.download(file) } },
                     actions = focused?.let { file ->
                         listOf(
-                            DetailAction("tray-arrow-down", "Save to Downloads") { model.save(file) },
+                            DetailAction("open-in-new", "Open") { model.open(file) },
                             DetailAction("link-variant", "Copy link") { model.copyLinks(listOf(file)) },
                             DetailAction("trash-can-outline", "Delete file", destructive = true) { deleteTarget = file },
                         )
