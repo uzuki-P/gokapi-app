@@ -90,36 +90,36 @@ internal class FilesModel(private val container: DesktopContainer, private val s
         }
     }
 
-    /** Downloads [file] to the cache and opens it in its default app. */
+    /** Downloads [file] to the cache, or reuses the cached copy, and opens it in its default app. */
     fun open(file: GokapiFile) = single(file) { c ->
-        val target = fetch(c, file, File(container.dirs.cacheDir, "files/${file.id}/${safeFilename(file.name)}"))
-        DesktopShell.open(target)
+        val cached = File(container.dirs.cacheDir, "files/${file.id}/${safeFilename(file.name)}")
+        DesktopShell.open(cached.takeIf { it.isFile && it.length() == file.sizeBytes } ?: fetch(c, file, cached))
     }
 
-    /** Downloads [file] into Downloads/Gokapi. */
-    fun save(file: GokapiFile) = single(file) { c ->
-        val target = fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))
-        saved[file.id] = target to target.length()
-        report("Saved ${target.name} to Downloads/Gokapi", target.parentFile)
+    /** Downloads [file] into Downloads/Gokapi, unless a copy is already there. */
+    fun save(file: GokapiFile) {
+        val existing = savedCopy(file)
+        if (existing != null) { report("${existing.name} is already in Downloads/Gokapi", existing.parentFile); return }
+        single(file) { c ->
+            val target = fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))
+            report("Saved ${target.name} to Downloads/Gokapi", target.parentFile)
+        }
     }
 
-    // Copies saved to Downloads in this session, so clicking again doesn't download a duplicate.
-    // The size is the one downloaded, so a copy edited or deleted since then downloads again.
-    private val saved = java.util.concurrent.ConcurrentHashMap<String, Pair<File, Long>>()
-
-    /** The default click: saves [file] to Downloads/Gokapi, or reuses this session's copy, then asks to open it. */
+    /** The default click: saves [file] to Downloads/Gokapi, or reuses a copy already there, then asks to open it. */
     fun download(file: GokapiFile) {
-        val existing = saved[file.id]?.takeIf { (copy, size) -> copy.isFile && copy.length() == size }?.first
+        val existing = savedCopy(file)
         if (existing != null) {
             mutableState.update { it.copy(openPrompt = SavedFile(file, existing)) }
             return
         }
         single(file) { c ->
             val target = fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))
-            saved[file.id] = target to target.length()
             mutableState.update { it.copy(openPrompt = SavedFile(file, target)) }
         }
     }
+
+    private fun savedCopy(file: GokapiFile) = existingCopy(container.dirs.downloadsDir, file.name, file.sizeBytes)
 
     fun dismissPrompt() = mutableState.update { it.copy(openPrompt = null) }
 
@@ -142,6 +142,7 @@ internal class FilesModel(private val container: DesktopContainer, private val s
             try {
                 val c = credentials()
                 files.forEachIndexed { index, file ->
+                    if (savedCopy(file) != null) return@forEachIndexed
                     mutableState.update { it.copy(transferring = file.id, bytes = 0, total = file.sizeBytes, batchIndex = index + 1, batchSize = files.size) }
                     fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))
                 }
@@ -265,12 +266,18 @@ internal fun safeFilename(name: String): String {
 }
 
 /** [name] in [directory], with " (2)", " (3)" … before the extension when it already exists. */
-internal fun uniqueTarget(directory: File, name: String): File {
+internal fun uniqueTarget(directory: File, name: String): File = numberedNames(directory, name).first { !it.exists() }
+
+/**
+ * An earlier download of [name] in [directory]: the file itself or one of its " (n)" copies,
+ * with [size] bytes. A copy edited since then has another size, so it downloads again.
+ */
+internal fun existingCopy(directory: File, name: String, size: Long): File? =
+    numberedNames(directory, name).takeWhile { it.exists() }.firstOrNull { it.isFile && it.length() == size }
+
+private fun numberedNames(directory: File, name: String): Sequence<File> {
     val safe = safeFilename(name)
     val base = safe.substringBeforeLast('.', safe)
     val extension = safe.substringAfterLast('.', "").let { if (it.isEmpty() || it == safe) "" else ".$it" }
-    var candidate = File(directory, safe)
-    var index = 2
-    while (candidate.exists()) candidate = File(directory, "$base ($index)$extension").also { index++ }
-    return candidate
+    return sequenceOf(File(directory, safe)) + generateSequence(2) { it + 1 }.map { File(directory, "$base ($it)$extension") }
 }

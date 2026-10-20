@@ -25,8 +25,8 @@ dev:
 check:
     ./gradlew :app:assembleMainAppDebug :app:assembleDevDebug :app:lintMainAppDebug :app:lintDevDebug :app:testMainAppDebugUnitTest :app:testDevDebugUnitTest :desktop:test
 
-# Build the signed release APK into _apk/gokapi-android-<version>-<d.mmm-HH-MM>.apk and upload it
-build-apk:
+# Build the signed release APK into _apk/gokapi-android-<version>-<d.mmm-HH-MM>.apk
+stage-apk:
     #!/usr/bin/env bash
     set -euo pipefail
     ./gradlew :app:assembleMainAppRelease
@@ -36,7 +36,19 @@ build-apk:
     apk="_apk/gokapi-android-${ver}-${stamp}.apk"
     cp app/build/outputs/apk/mainApp/release/app-mainApp-release.apk "$apk"
     echo "Built $apk"
+
+# Build the signed release APK with stage-apk and upload it
+build-apk: stage-apk
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The newest staged release APK is the one stage-apk just wrote.
+    apk="$(ls -t _apk/gokapi-android-*.apk | head -1)"
     ~/docker/files/bin/share "$(pwd)/$apk"
+
+# Wait for the GitHub Actions APK build of the pushed HEAD, save it in _apk/, and share it via Gokapi.
+[linux]
+ci-apk:
+    bash scripts/ci-apk
 
 # Build the dev release APK into _apk/DEV-gokapi-android-<version>-dev_<dd-mmm_HH-MM>.apk and upload it
 build-apk-dev:

@@ -40,11 +40,6 @@ internal class FilesViewModel(private val container: AppContainer) : ViewModel()
     private var transfer: Job? = null
     private var refreshJob: Job? = null
 
-    // Files already saved to Downloads in this session, so tapping again doesn't save a duplicate.
-    private val savedToDownloads = mutableSetOf<String>()
-    fun wasSaved(file: GokapiFile) = file.id in savedToDownloads
-    fun markSaved(file: GokapiFile) { savedToDownloads += file.id }
-
     init { refresh() }
     fun dismiss() { mutableState.value = state.value.copy(selected = null, apk = null) }
     fun select(file: GokapiFile) { mutableState.value = state.value.copy(selected = file, apk = null) }

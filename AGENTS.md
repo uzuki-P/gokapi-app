@@ -41,8 +41,9 @@ a 1280x800dp tablet on any emulator.
 Tapping or clicking a file shows its details: in the pane on wide layouts,
 full screen on Android phones. The details' Download saves the file to
 Downloads/Gokapi, then asks whether to open it (Install on an APK downloads,
-then shows the install sheet). A second Download in the same session reuses
-the saved copy. Narrow desktop windows have no pane, so a click there still
+then shows the install sheet). Downloading a file again reuses the copy
+already in Downloads/Gokapi when its name and size match, across restarts
+too; on Android that only covers copies this install saved. Narrow desktop windows have no pane, so a click there still
 downloads right away.
 
 The main app uses `com.uzukip.gokapi`. The dev flavor uses

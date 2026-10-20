@@ -6,6 +6,7 @@ import com.uzukip.gokapi.desktop.data.PlainCipher
 import com.uzukip.gokapi.desktop.data.SettingsStore
 import com.uzukip.gokapi.desktop.data.ThemeMode
 import com.uzukip.gokapi.desktop.platform.AppDirs
+import com.uzukip.gokapi.desktop.ui.existingCopy
 import com.uzukip.gokapi.desktop.ui.safeFilename
 import com.uzukip.gokapi.desktop.ui.uniqueTarget
 import java.io.File
@@ -71,5 +72,15 @@ class DesktopStorageTest {
         assertEquals("report (3).pdf", uniqueTarget(dir, "report.pdf").name)
         assertEquals("notes", uniqueTarget(dir, "notes").name)
         assertFalse(File(dir, "notes").exists())
+    }
+
+    @Test
+    fun existingCopyMatchesNameAndSize() {
+        val dir = File(root, "saved").apply { mkdirs() }
+        File(dir, "report.pdf").writeText("edited")
+        File(dir, "report (2).pdf").writeText("abc")
+        assertEquals("report (2).pdf", existingCopy(dir, "report.pdf", 3)?.name)
+        assertEquals(null, existingCopy(dir, "report.pdf", 4))
+        assertEquals(null, existingCopy(dir, "other.pdf", 3))
     }
 }

@@ -263,10 +263,8 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                     FileAction.OPEN -> openCached(first)
                     FileAction.DOWNLOAD -> {
                         // Android 8 and 9 have no MediaStore Downloads; the file stays in the cache.
-                        if (Build.VERSION.SDK_INT >= 29 && !model.wasSaved(first.metadata)) {
-                            container.transfers.saveToDownloads(first.file, first.metadata)
-                            model.markSaved(first.metadata)
-                        }
+                        // A copy already in Downloads/Gokapi is reused instead of saved twice.
+                        if (Build.VERSION.SDK_INT >= 29) container.transfers.saveToDownloads(first.file, first.metadata)
                         openPrompt = first
                     }
                 }

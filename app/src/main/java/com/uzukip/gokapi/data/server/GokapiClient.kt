@@ -136,7 +136,9 @@ class GokapiClient(
                     }
                 }
             }
-            if (!partial.renameTo(target)) throw IOException("Couldn't save the downloaded file.")
+            // Replaces an older copy: renameTo fails on Windows when the target exists
+            try { java.nio.file.Files.move(partial.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+            catch (e: IOException) { throw IOException("Couldn't save the downloaded file.", e) }
         } finally { partial.delete() }
     }
 
