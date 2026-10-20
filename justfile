@@ -122,7 +122,11 @@ build-exe:
 [extension(".ps1")]
 update-exe:
     $ErrorActionPreference = "Stop"
-    & "{{just_executable()}}" build-exe | Tee-Object -Variable buildOutput
+    # Run build-exe without a pipe or capture: the Gradle and Kotlin daemons it starts
+    # inherit the pipe's write end, so Tee-Object or $(...) would wait until they exit.
+    & "{{just_executable()}}" build-exe
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    $staged = @($buildOutput)[-1]
-    & .\scripts\update-installed-exe.ps1 -Installer $staged -Version "{{desktop_version}}"
+    # The newest staged copy of this version is the one build-exe just wrote.
+    $staged = Get-ChildItem -LiteralPath _apk -Filter "{{desktop_id}}-{{desktop_version}}_*.exe" | Sort-Object CreationTime | Select-Object -Last 1
+    if (-not $staged) { throw "build-exe left no staged installer for {{desktop_version}} in _apk." }
+    & .\scripts\update-installed-exe.ps1 -Installer $staged.FullName -Version "{{desktop_version}}"

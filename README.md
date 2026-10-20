@@ -98,3 +98,8 @@ and upload them through the existing files helper. Set `keystore.properties`
 for release signing. Without it, release builds use debug signing.
 
 The roadmap and verification status are in [plan.md](plan.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Bundled fonts keep their own licenses, listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

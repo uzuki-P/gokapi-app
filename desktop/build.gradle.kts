@@ -50,21 +50,23 @@ val sharedSources = listOf(
     "com/uzukip/gokapi/ui/components/TopBar.kt",
     "com/uzukip/gokapi/ui/settings/SettingsComponents.kt",
 )
-val syncSharedSources by tasks.registering(Sync::class) {
+val syncSharedSources = tasks.register<Sync>("syncSharedSources") {
     from(rootProject.file("app/src/main/java")) { include(sharedSources) }
     into(layout.buildDirectory.dir("generated/shared/kotlin"))
 }
 sourceSets.main { kotlin.srcDir(syncSharedSources) }
 
-// The Android app's fonts, so both apps render the same type and icons (ui/theme/Fonts.kt).
-val syncSharedFonts by tasks.registering(Sync::class) {
-    from(rootProject.file("app/src/main/res/font")) { include("google_sans_flex.ttf", "mci.ttf") }
-    into(layout.buildDirectory.dir("generated/shared/resources/font"))
+// The Android app's fonts, so both apps render the same type and icons (ui/theme/Type.kt),
+// with the font license the OFL requires to travel with the font.
+val syncSharedFonts = tasks.register<Sync>("syncSharedFonts") {
+    from(rootProject.file("app/src/main/res/font")) { include("google_sans_flex.ttf", "mci.ttf"); into("font") }
+    from(rootProject.file("app/src/main/assets/licenses")) { into("licenses") }
+    into(layout.buildDirectory.dir("generated/shared/resources"))
 }
-sourceSets.main { resources.srcDir(syncSharedFonts.map { it.destinationDir.parentFile }) }
+sourceSets.main { resources.srcDir(syncSharedFonts) }
 
 // The Settings screen shows the build's version (platform/AppVersion.kt reads this resource).
-val generateVersionResource by tasks.registering {
+val generateVersionResource = tasks.register("generateVersionResource") {
     val output = layout.buildDirectory.dir("generated/version")
     val appVersion = project.version.toString()
     inputs.property("version", appVersion)
