@@ -4,7 +4,7 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 # Desktop app (desktop/), for Linux and Windows. Every desktop recipe passes
 # -PdesktopOnly=true so Gradle skips the Android module and needs no Android SDK.
 desktop_id := "gokapi-desktop"
-desktop_name := "Gokapi"
+desktop_name := "Files - Gokapi Desktop"
 # `<versionBase>.<commit count>`, matching desktop/build.gradle.kts.
 desktop_version := replace_regex(read("desktop/build.gradle.kts"), '(?s).*\nval versionBase = "([^"]*)".*', '$1') + "." + `git rev-list --count HEAD`
 appimage_task := ":desktop:packageAppImageFile"

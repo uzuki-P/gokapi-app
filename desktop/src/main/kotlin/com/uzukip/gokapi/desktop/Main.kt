@@ -38,7 +38,7 @@ import org.jetbrains.skia.Image
 fun main() = runApp(DesktopContainer())
 
 /** Opens the app window for [container]; the mock app in the tests passes one with fake data. */
-fun runApp(container: DesktopContainer, title: String = "Gokapi") {
+fun runApp(container: DesktopContainer, title: String = "Files - Gokapi Desktop") {
     // A second launch, for example from the app menu while the window sits in the tray,
     // shows the running app's window instead of starting another app.
     val launch = SingleInstance.acquire(container.dirs.configDir)

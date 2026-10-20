@@ -28,7 +28,7 @@ fun main() {
         container.ntfy.save(server.url("/gokapi-uploads").toString(), "tk_mock")
         container.settings.update { it.copy(notificationMode = com.uzukip.gokapi.desktop.data.NotificationMode.INSTANT) }
     }
-    runApp(container, title = "Gokapi (mock)")
+    runApp(container, title = "Files - Gokapi Desktop (mock)")
 }
 
 private class MockGokapi : Dispatcher() {
