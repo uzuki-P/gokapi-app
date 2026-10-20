@@ -12,6 +12,14 @@ The project shell, theme, components, and settings screen are copied from
 `~/projects/_sandbox/spendr-kt`. When a shared piece needs a fix, check
 whether spendr-kt has the same bug.
 
+`desktop/` is a Compose Multiplatform desktop app for Linux and Windows. It
+compiles the Gokapi client and most Compose components straight from
+`app/src/main/java` (the `sharedSources` list in `desktop/build.gradle.kts`),
+so keep those files free of Android APIs. When a shared file stops compiling
+on desktop, drop it from the list and keep a desktop copy, as `Choices.kt`
+does for a material3 API rename. Desktop-only code lives under
+`desktop/src/main/kotlin/com/uzukip/gokapi/desktop/`.
+
 The main app uses `com.uzukip.gokapi`. The dev flavor uses
 `com.uzukip.gokapi.dev`, has its own Android data, and installs side by side.
 
@@ -20,10 +28,19 @@ The main app uses `com.uzukip.gokapi`. The dev flavor uses
 Use the justfile recipes:
 
 - `just dev`: install and launch the mainApp debug build
-- `just check`: assemble, lint, and unit-test both flavors; must pass before
-  finishing a change
+- `just check`: assemble, lint, and unit-test both flavors, plus the desktop
+  tests; must pass before finishing a change
 - `just build-apk` / `just build-apk-dev`: release APK into `_apk/`, uploaded
   through `~/docker/files/bin/share`
+- `just dev-desktop`: run the desktop app from source
+- `just desktop-mock`: run the desktop app against a fake server with sample
+  files and throwaway settings, for checking layouts
+- `just update`: build the AppImage, stage it in `_apk/`, and install it to
+  `~/apps/gokapi-desktop.AppImage` with a launcher entry (`just uninstall`
+  removes it)
+- `just update-exe` (Windows): build the EXE installer, stage it, and swap the
+  installed app's files in place, or run the installer on first install.
+  Desktop recipes pass `-PdesktopOnly=true`, so Windows needs no Android SDK
 
 ## Emulator
 

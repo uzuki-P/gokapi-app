@@ -6,10 +6,21 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +35,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,7 +50,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FloatingToolbarDefaults
+import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LocalContentColor
@@ -72,6 +93,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -86,7 +109,9 @@ import coil.compose.AsyncImage
 import com.uzukip.gokapi.AppContainer
 import com.uzukip.gokapi.BuildConfig
 import com.uzukip.gokapi.LocalVibrate
+import com.uzukip.gokapi.data.files.safeFilename
 import com.uzukip.gokapi.data.server.GokapiFile
+import com.uzukip.gokapi.data.server.formatBytes
 import com.uzukip.gokapi.data.server.newerAppVersion
 import com.uzukip.gokapi.platform.ApkDetails
 import com.uzukip.gokapi.platform.AppMessages
@@ -125,7 +150,9 @@ private val Filters = listOf(
  * Files home: large rounded title with a settings button, a search pill and
  * filter toggles, live upload cards, then the files as one segmented group.
  * Upload is a medium extended FAB that shrinks to its icon while scrolling
- * down. Long-press a file for its action sheet.
+ * down. A file's overflow button opens its action sheet. Long-press a file to
+ * start selecting: rows grow checkboxes, a selection bar covers the title, and
+ * a floating toolbar replaces the FAB with bulk share, save, copy, and delete.
  */
 @Composable
 fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: () -> Unit, onOpenSettings: () -> Unit) {
@@ -139,7 +166,9 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
     var filter by remember { mutableStateOf("All") }
     var deleteTarget by remember { mutableStateOf<GokapiFile?>(null) }
     var uploadUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var legacySave by remember { mutableStateOf<CachedAction?>(null) }
+    var legacySave by remember { mutableStateOf<CachedFile?>(null) }
+    var legacyBatch by remember { mutableStateOf<List<CachedFile>>(emptyList()) }
+    var confirmBulkDelete by remember { mutableStateOf(false) }
     val jobs by remember(context) { WorkManager.getInstance(context).getWorkInfosByTagFlow("uploads") }.collectAsState(initial = emptyList())
     val message by AppMessages.message.collectAsState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -166,25 +195,55 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
             } catch (e: Exception) { snackbar.showSnackbar(e.message ?: "Couldn't save this file.") }
         }
     }
+    // Android 8–9 has no MediaStore Downloads, so a multi-file save asks for a folder instead
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        val batch = legacyBatch
+        legacyBatch = emptyList()
+        if (tree != null && batch.isNotEmpty()) scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                    batch.forEach { cached ->
+                        val target = DocumentsContract.createDocument(context.contentResolver, parent, cached.metadata.contentType, safeFilename(cached.metadata.name))
+                            ?: error("Couldn't create ${cached.metadata.name}.")
+                        context.contentResolver.openOutputStream(target)?.use { out -> cached.file.inputStream().use { it.copyTo(out) } } ?: error("Couldn't save ${cached.metadata.name}.")
+                    }
+                }
+                snackbar.showSnackbar("Saved ${batch.size} files")
+            } catch (e: Exception) { snackbar.showSnackbar(e.message ?: "Couldn't save these files.") }
+        }
+    }
     LaunchedEffect(model) {
         model.refresh()
         model.cachedActions.collect { cached ->
+            val items = cached.items
+            val first = items.first()
             try {
                 when (cached.action) {
-                    FileAction.SAVE -> if (Build.VERSION.SDK_INT >= 29) {
-                        container.transfers.saveToDownloads(cached.file, cached.metadata)
-                        snackbar.showSnackbar("Saved to Downloads/Gokapi")
-                    } else { legacySave = cached; savePicker.launch(cached.metadata.name) }
+                    FileAction.SAVE -> when {
+                        Build.VERSION.SDK_INT >= 29 -> {
+                            items.forEach { container.transfers.saveToDownloads(it.file, it.metadata) }
+                            snackbar.showSnackbar(if (items.size == 1) "Saved to Downloads/Gokapi" else "Saved ${items.size} files to Downloads/Gokapi")
+                        }
+                        items.size == 1 -> { legacySave = first; savePicker.launch(first.metadata.name) }
+                        else -> { legacyBatch = items; folderPicker.launch(null) }
+                    }
                     FileAction.SHARE -> {
-                        val uri = container.transfers.uri(cached.file)
-                        val intent = Intent(Intent.ACTION_SEND).setType(cached.metadata.contentType).putExtra(Intent.EXTRA_STREAM, uri)
-                            .apply { clipData = ClipData.newUri(context.contentResolver, cached.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        context.startActivity(Intent.createChooser(intent, "Share file"))
+                        val uris = items.map { container.transfers.uri(it.file) }
+                        val intent = if (uris.size == 1) {
+                            Intent(Intent.ACTION_SEND).setType(first.metadata.contentType).putExtra(Intent.EXTRA_STREAM, uris[0])
+                        } else {
+                            Intent(Intent.ACTION_SEND_MULTIPLE).setType(sharedMimeType(items.map { it.metadata.contentType }))
+                                .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                        }
+                        intent.clipData = ClipData.newUri(context.contentResolver, first.metadata.name, uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        context.startActivity(Intent.createChooser(intent, if (uris.size == 1) "Share file" else "Share ${uris.size} files"))
                     }
                     FileAction.OPEN -> {
-                        val uri = container.transfers.uri(cached.file)
-                        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, cached.metadata.contentType)
-                            .apply { clipData = ClipData.newUri(context.contentResolver, cached.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        val uri = container.transfers.uri(first.file)
+                        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, first.metadata.contentType)
+                            .apply { clipData = ClipData.newUri(context.contentResolver, first.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { context.startActivity(Intent.createChooser(intent.setType("*/*"), "Open file")) }
                     }
                 }
@@ -196,6 +255,10 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
     val listState = rememberLazyListState()
     val fabExpanded by rememberExpandedOnScrollUp(listState)
     val refreshState = rememberPullToRefreshState()
+    val visibleIds = filtered.mapTo(HashSet(), GokapiFile::id)
+    LaunchedEffect(visibleIds) { model.retainChecked(visibleIds) }
+    BackHandler(enabled = state.selecting) { model.clearChecked() }
+    val toggle = { file: GokapiFile -> vibrate(); model.toggle(file) }
 
     // Surface (not a bare background) so text inherits onSurface in both themes
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
@@ -268,12 +331,16 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                             SectionHeader(
                                 title = if (query.isBlank() && filter == "All") "Recent files" else "Results",
                                 action = {
-                                    Text(
-                                        "${filtered.size} ${if (filtered.size == 1) "file" else "files"}",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(end = 4.dp),
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "${filtered.size} ${if (filtered.size == 1) "file" else "files"}",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        BouncyIconButton(onClick = { vibrate(); model.checkAll(filtered) }, enabled = state.transferring == null) {
+                                            MciIcon("checkbox-multiple-outline", 20.dp, MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "Select all")
+                                        }
+                                    }
                                 },
                             )
                         }
@@ -286,8 +353,11 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                                     if (state.total > 0) (state.bytes.toFloat() / state.total).coerceIn(0f, 1f) else 0f
                                 } else null,
                                 enabled = state.transferring == null,
-                                onClick = { vibrate(); model.download(file, FileAction.OPEN) },
-                                onLongClick = { vibrate(); model.select(file) },
+                                selecting = state.selecting,
+                                checked = file.id in state.checked,
+                                onClick = { if (state.selecting) toggle(file) else { vibrate(); model.download(file, FileAction.OPEN) } },
+                                onLongClick = { toggle(file) },
+                                onMore = { vibrate(); model.select(file) },
                                 onCancel = model::cancelDownload,
                                 modifier = Modifier.animateItem().padding(bottom = SegmentGap),
                             )
@@ -296,16 +366,71 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 }
             }
         }
+        // Surface stretches a direct child to fill it, so the bar sits in its own Box
+        Box(Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = state.selecting,
+                enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { -it } + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { -it } + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
+            ) {
+                // Keep the last selection while the bar slides out, so it never reads "0 selected"
+                val lastChecked = remember { mutableStateOf(emptyList<GokapiFile>()) }
+                state.checkedFiles.takeIf { it.isNotEmpty() }?.let { lastChecked.value = it }
+                val checkedFiles = lastChecked.value
+                SelectionBar(
+                    count = checkedFiles.size,
+                    totalBytes = checkedFiles.sumOf { it.sizeBytes },
+                    allChecked = filtered.isNotEmpty() && filtered.all { it.id in state.checked },
+                    batchIndex = state.batchIndex,
+                    batchSize = state.batchSize,
+                    onClose = { vibrate(); model.clearChecked() },
+                    onToggleAll = { all -> vibrate(); if (all) model.checkAll(filtered) else model.clearChecked() },
+                )
+            }
+        }
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars)) {
-            MediumExtendedFloatingActionButton(
-                text = { Text("Upload") },
-                icon = { MciIcon("upload", 28.dp, LocalContentColor.current) },
-                onClick = { vibrate(); picker.launch(arrayOf("*/*")) },
-                expanded = fabExpanded,
+            AnimatedVisibility(
+                visible = !state.selecting,
+                enter = scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 16.dp),
-            )
+            ) {
+                MediumExtendedFloatingActionButton(
+                    text = { Text("Upload") },
+                    icon = { MciIcon("upload", 28.dp, LocalContentColor.current) },
+                    onClick = { vibrate(); picker.launch(arrayOf("*/*")) },
+                    expanded = fabExpanded,
+                )
+            }
+            AnimatedVisibility(
+                visible = state.selecting,
+                enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it } + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = slideOutVertically(MaterialTheme.motionScheme.fastSpatialSpec()) { it } + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = FloatingToolbarDefaults.ScreenOffset),
+            ) {
+                SelectionToolbar(
+                    downloading = state.batchSize > 0,
+                    onShare = { vibrate(); model.downloadChecked(FileAction.SHARE) },
+                    onSave = { vibrate(); model.downloadChecked(FileAction.SAVE) },
+                    onCopyLinks = {
+                        vibrate()
+                        val files = state.checkedFiles
+                        context.getSystemService(ClipboardManager::class.java)
+                            .setPrimaryClip(ClipData.newPlainText("Gokapi links", files.joinToString("\n") { it.link(state.server) }))
+                        model.clearChecked()
+                        model.report(if (files.size == 1) "Link copied" else "Copied ${files.size} links")
+                    },
+                    onDelete = { vibrate(); confirmBulkDelete = true },
+                    onCancel = { vibrate(); model.cancelDownload() },
+                )
+            }
             SnackbarHost(
                 snackbar,
                 modifier = Modifier
@@ -342,6 +467,23 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 ) { Text("Delete") }
             },
             dismissButton = { BouncyTextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+        )
+    }
+    if (confirmBulkDelete) {
+        val files = state.checkedFiles
+        val label = "${files.size} ${if (files.size == 1) "file" else "files"}"
+        AlertDialog(
+            onDismissRequest = { confirmBulkDelete = false },
+            icon = { MciIcon("trash-can-outline", 24.dp, MaterialTheme.colorScheme.error) },
+            title = { Text("Delete $label?") },
+            text = { Text("This permanently removes $label (${formatBytes(files.sumOf { it.sizeBytes })}) from the server. You need DELETE permission.") },
+            confirmButton = {
+                BouncyTextButton(
+                    onClick = { confirmBulkDelete = false; model.deleteChecked() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
+            },
+            dismissButton = { BouncyTextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") } },
         )
     }
     state.apk?.let { apk ->
@@ -448,6 +590,130 @@ private fun FilterRow(selected: String, onSelect: (String) -> Unit) {
     }
 }
 
+/**
+ * Pinned bar shown while selecting. It covers the title with a close button,
+ * a rolling count, and a Select all toggle that morphs when every visible file
+ * is ticked.
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    totalBytes: Long,
+    allChecked: Boolean,
+    batchIndex: Int,
+    batchSize: Int,
+    onClose: () -> Unit,
+    onToggleAll: (Boolean) -> Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                // Tall enough to hide the Gokapi title and its subtitle underneath
+                .heightIn(min = 104.dp)
+                .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BouncyIconButton(onClick = onClose) {
+                MciIcon("close", 24.dp, LocalContentColor.current, contentDescription = "Clear selection")
+            }
+            Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                // The count rolls up when files are added and down when removed
+                val slide = MaterialTheme.motionScheme.fastSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+                val fade = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+                AnimatedContent(
+                    targetState = count,
+                    transitionSpec = {
+                        val up = targetState > initialState
+                        (slideInVertically(slide) { if (up) it else -it } + fadeIn(fade))
+                            .togetherWith(slideOutVertically(slide) { if (up) -it else it } + fadeOut(fade))
+                    },
+                    label = "selectedCount",
+                ) { value ->
+                    Text("$value selected", style = MaterialTheme.typography.headlineSmallEmphasized, color = MaterialTheme.colorScheme.onSurface)
+                }
+                Text(
+                    if (batchSize > 0) "Downloading $batchIndex of $batchSize" else formatBytes(totalBytes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            FilledTonalToggleButton(
+                checked = allChecked,
+                onCheckedChange = onToggleAll,
+                enabled = batchSize == 0,
+                shapes = ToggleButtonDefaults.shapesFor(40.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                modifier = Modifier.height(40.dp),
+            ) {
+                MciIcon(if (allChecked) "checkbox-multiple-marked-outline" else "checkbox-multiple-outline", 18.dp, LocalContentColor.current)
+                Text(
+                    "All",
+                    style = if (allChecked) MaterialTheme.typography.labelLargeEmphasized else MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Vibrant floating toolbar with the bulk actions. While a multi-file download
+ * runs it shows a loading indicator and a cancel button.
+ */
+@Composable
+private fun SelectionToolbar(
+    downloading: Boolean,
+    onShare: () -> Unit,
+    onSave: () -> Unit,
+    onCopyLinks: () -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    HorizontalFloatingToolbar(
+        expanded = true,
+        colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
+    ) {
+        AnimatedContent(targetState = downloading, label = "toolbarContent") { busy ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (busy) {
+                    LoadingIndicator(Modifier.size(40.dp), color = LocalContentColor.current)
+                    Text("Downloading", style = MaterialTheme.typography.labelLargeEmphasized, modifier = Modifier.padding(horizontal = 8.dp))
+                    ToolbarAction("close", "Cancel download", onCancel)
+                } else {
+                    ToolbarAction("share-variant-outline", "Share", onShare)
+                    ToolbarAction("tray-arrow-down", "Save to Downloads", onSave)
+                    ToolbarAction("link-variant", "Copy links", onCopyLinks)
+                    ToolbarAction("trash-can-outline", "Delete", onDelete)
+                }
+            }
+        }
+    }
+}
+
+/** Toolbar icon button whose label shows as a tooltip on long-press. */
+@Composable
+private fun ToolbarAction(glyph: String, label: String, onClick: () -> Unit) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = rememberTooltipState(),
+    ) {
+        BouncyIconButton(onClick = onClick) {
+            MciIcon(glyph, 24.dp, LocalContentColor.current, contentDescription = label)
+        }
+    }
+}
+
+/** The narrowest MIME type that covers every shared file: one exact type, one family wildcard, or any type. */
+internal fun sharedMimeType(types: List<String>): String {
+    val distinct = types.map { it.ifBlank { "application/octet-stream" }.lowercase() }.distinct()
+    if (distinct.size == 1) return distinct[0]
+    val family = distinct.map { it.substringBefore('/') }.distinct()
+    return if (family.size == 1) "${family[0]}/*" else "*/*"
+}
+
 @Composable
 private fun UploadJobRow(job: WorkInfo, corners: Corners, onCancel: () -> Unit, modifier: Modifier = Modifier) {
     val percent = job.progress.getInt("percent", -1)
@@ -541,62 +807,90 @@ private fun FileRow(
     corners: Corners,
     progress: Float?,
     enabled: Boolean,
+    selecting: Boolean,
+    checked: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onMore: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val update = newerAppVersion(file.name, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR == "dev")
+    // A checked row leaves the segmented group: it rounds out fully and fills with the secondary container
+    val color by animateColorAsState(
+        if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "rowColor",
+    )
     MorphSurface(
         onClick = onClick,
         onLongClick = onLongClick,
-        corners = corners,
+        corners = if (checked) Corners(24.dp) else corners,
+        color = color,
+        contentColor = if (checked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         enabled = enabled,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (selecting) Modifier.semantics { selected = checked } else Modifier),
     ) {
         Column {
             Row(
-                Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 12.dp),
+                Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                FileThumbnail(file, server, 48.dp)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(file.name, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${file.size} · ${file.age()}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        MciIcon(if (file.unlimitedTime) "infinity" else "timer-sand", 14.dp, MaterialTheme.colorScheme.onSurfaceVariant)
+                AnimatedVisibility(
+                    visible = selecting,
+                    enter = expandHorizontally(MaterialTheme.motionScheme.defaultSpatialSpec()) + scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    exit = shrinkHorizontally(MaterialTheme.motionScheme.fastSpatialSpec()) + scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                ) {
+                    // The whole row toggles, so the checkbox only shows the state
+                    Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(end = 14.dp))
+                }
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    FileThumbnail(file, server, 48.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(file.name, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(
-                            file.expiry() + if (file.unlimitedDownloads) "" else " · ${file.downloadsRemaining} downloads left",
-                            style = MaterialTheme.typography.bodySmall,
+                            "${file.size} · ${file.age()}",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    if (update) {
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(top = 4.dp),
-                        ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            MciIcon(if (file.unlimitedTime) "infinity" else "timer-sand", 14.dp, MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                "Update available",
-                                style = MaterialTheme.typography.labelMediumEmphasized,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                file.expiry() + if (file.unlimitedDownloads) "" else " · ${file.downloadsRemaining} downloads left",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (update) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
+                                Text(
+                                    "Update available",
+                                    style = MaterialTheme.typography.labelMediumEmphasized,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
                     }
-                }
-                if (progress != null) {
-                    BouncyIconButton(onClick = onCancel) {
-                        MciIcon("close", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "Cancel download")
+                    when {
+                        progress != null -> BouncyIconButton(onClick = onCancel) {
+                            MciIcon("close", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "Cancel download")
+                        }
+                        selecting -> Box(Modifier.size(width = 8.dp, height = 48.dp))
+                        else -> BouncyIconButton(onClick = onMore, enabled = enabled) {
+                            MciIcon("dots-vertical", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "More actions for ${file.name}")
+                        }
                     }
-                } else {
-                    MciIcon("chevron-right", 22.dp, MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             AnimatedVisibility(
@@ -615,7 +909,7 @@ private fun FileRow(
     }
 }
 
-/** Long-press sheet: file header, a large primary Open/Install, then the segmented action list. */
+/** Overflow sheet: file header, a large primary Open/Install, then the segmented action list. */
 @Composable
 private fun FileActionsSheet(
     file: GokapiFile,

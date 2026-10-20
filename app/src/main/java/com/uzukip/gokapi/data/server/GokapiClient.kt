@@ -14,6 +14,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -87,14 +89,17 @@ class GokapiClient(
         it.body?.string() ?: throw ConnectionFailure("The server returned an empty response.")
     }
 
+    // The three checks run at once so a distant server costs one round trip, not three.
     suspend fun testConnection(c: ServerCredentials): ConnectionReport = network {
-        val root = Json.parseToJsonElement(body(builder(c, "info/version").build(), "VIEW"))
-        val info = if (root is JsonArray) root.firstOrNull()?.jsonObject else root.jsonObject
-        val version = info?.string("Version")?.takeIf { it.isNotBlank() }
-            ?: throw ConnectionFailure("The server did not return a Gokapi version.")
-        val view = try { parseFiles(body(builder(c, "files/list").build(), "VIEW")); true } catch (e: PermissionFailure) { false }
-        val upload = try { uploadLimitsInternal(c); true } catch (e: PermissionFailure) { false }
-        ConnectionReport(version, view, upload)
+        coroutineScope {
+            val view = async { try { parseFiles(body(builder(c, "files/list").build(), "VIEW")); true } catch (e: PermissionFailure) { false } }
+            val upload = async { try { uploadLimitsInternal(c); true } catch (e: PermissionFailure) { false } }
+            val root = Json.parseToJsonElement(body(builder(c, "info/version").build(), "VIEW"))
+            val info = if (root is JsonArray) root.firstOrNull()?.jsonObject else root.jsonObject
+            val version = info?.string("Version")?.takeIf { it.isNotBlank() }
+                ?: throw ConnectionFailure("The server did not return a Gokapi version.")
+            ConnectionReport(version, view.await(), upload.await())
+        }
     }
 
     suspend fun list(c: ServerCredentials): List<GokapiFile> = network {

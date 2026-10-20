@@ -91,7 +91,7 @@ class AppFlowsTest {
         compose.onNodeWithText("sample.apk").assertDoesNotExist()
         compose.onNode(hasSetTextAction()).performTextClearance()
         device.pressBack()
-        compose.onNodeWithText("sample.apk").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("More actions for sample.apk").performClick()
         compose.onNodeWithText("Share file").assertIsDisplayed()
         compose.onNodeWithText("Delete file").performClick()
         compose.onNodeWithText("Delete sample.apk?").assertIsDisplayed()
@@ -101,6 +101,23 @@ class AppFlowsTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Share file").fetchSemanticsNodes().isEmpty() }
         compose.waitForIdle()
         shell("screencap -p /sdcard/Download/gokapi-files-test.png")
+    }
+
+    @Test fun multiSelectConfirmsBulkDelete() {
+        compose.setContent { GokapiTheme(com.uzukip.gokapi.data.settings.Settings()) { HomeScreen(container, null, {}, {}) } }
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("sample.apk").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("sample.apk").performTouchInput { longClick() }
+        compose.onNodeWithText("1 selected").assertIsDisplayed()
+        compose.onNodeWithText("report.txt").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("2 selected").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Delete").performClick()
+        compose.onNodeWithText("Delete 2 files?").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.waitForIdle()
+        shell("screencap -p /sdcard/Download/gokapi-select-test.png")
+        device.pressBack()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("2 selected").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithContentDescription("More actions for report.txt").assertIsDisplayed()
     }
 
     @Test fun deepLinkResolvesMetadata() {
