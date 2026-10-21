@@ -22,7 +22,7 @@ class AppDirs(
         return File(base, APP_ID)
     }
 
-    // The per-user installer puts the app in %LOCALAPPDATA%\gokapi-desktop, so data uses another name.
+    // The per-user installer puts the app in %LOCALAPPDATA%\Files - Gokapi Desktop, so data uses another name.
     private val windowsRoot: File
         get() = File(env("LOCALAPPDATA")?.takeIf { it.isNotBlank() && File(it).isAbsolute }?.let(::File) ?: File(home, "AppData/Local"), "GokapiDesktop")
 

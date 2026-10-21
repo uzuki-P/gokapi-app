@@ -116,7 +116,10 @@ compose.desktop {
             // security.auth: dbus-java's unix-socket auth for the Linux tray.
             modules("java.naming", "jdk.crypto.ec", "jdk.security.auth", "jdk.unsupported")
             targetFormats(TargetFormat.AppImage, TargetFormat.Exe)
-            packageName = "gokapi-desktop"
+            // Windows shows packageName as the installed app's name, Start menu entry, EXE,
+            // and install folder. Linux keeps the ID, which AppRun, WM_CLASS, and the
+            // launcher entry use.
+            packageName = if (buildingOnWindows) "Files - Gokapi Desktop" else "gokapi-desktop"
             packageVersion = project.version.toString()
             description = "Desktop client for a private Gokapi file server"
             copyright = "Copyright © 2026 Uzuki-P"
@@ -129,7 +132,7 @@ compose.desktop {
                 menuGroup = "Gokapi"
                 // Fixed for every release so a newer installer replaces the installed app.
                 upgradeUuid = "5b0f6f1e-7a43-4d0c-9a51-2f7c6f0f3c1d"
-                // Per-user install into %LOCALAPPDATA%\gokapi-desktop, as metrolist-desktop does:
+                // Per-user install into %LOCALAPPDATA%\Files - Gokapi Desktop, as metrolist-desktop does:
                 // no admin prompt, and `just update-exe` can swap the files in place.
                 perUserInstall = true
                 shortcut = true
@@ -201,7 +204,7 @@ tasks.register("packageAppImageFile") {
             setExecutable(true)
         }
         File(directory, "gokapi-desktop.desktop").writeText(
-            "[Desktop Entry]\nType=Application\nName=Gokapi\nComment=Private file sharing\nExec=gokapi-desktop\nIcon=gokapi-desktop\nCategories=Network;FileTransfer;\nTerminal=false\n",
+            "[Desktop Entry]\nType=Application\nName=Files - Gokapi Desktop\nComment=Private file sharing\nExec=gokapi-desktop\nIcon=gokapi-desktop\nCategories=Network;FileTransfer;\nTerminal=false\n",
         )
         iconFile.asFile.copyTo(File(directory, "gokapi-desktop.png"), overwrite = true)
 

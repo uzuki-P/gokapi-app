@@ -10,7 +10,8 @@ desktop_version := replace_regex(read("desktop/build.gradle.kts"), '(?s).*\nval 
 appimage_task := ":desktop:packageAppImageFile"
 appimage_output := "desktop/build/compose/binaries/main/appimage/gokapi-desktop-" + desktop_version + ".AppImage"
 desktop_icon := "desktop/assets/gokapi-desktop.png"
-exe_output := "desktop/build/compose/binaries/main/exe/gokapi-desktop-" + desktop_version + ".exe"
+# On Windows, packageName in desktop/build.gradle.kts is desktop_name.
+exe_output := "desktop/build/compose/binaries/main/exe/" + desktop_name + "-" + desktop_version + ".exe"
 
 # List available recipes
 default:
