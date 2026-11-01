@@ -40,11 +40,13 @@ API calls through a Cloudflare Tunnel. The tunnel has no public hostname. Each
 device also gets its own Gokapi key. See `~/docker/files/README.md` for the
 server setup.
 
-1. On the server, run `just pair <device>` in `~/docker/files`. It prints a
-   pairing link and QR code. The link is a credential: don't share it.
-2. On the phone, scan the QR code and open the link, which opens Settings in the
-   app. Alternatively, copy the link and tap Paste pairing link. On desktop,
-   paste the link the same way.
+1. Pair the device on the files web UI's Devices page, or run
+   `just pair <device>` in `~/docker/files`. Either shows a pairing link and QR
+   code. The link is a credential: don't share it.
+2. In the app's Settings, under Away from Tailscale, tap Scan QR code and point
+   the camera at the code. The camera permission is asked for only then.
+   Alternatively, paste the link into the Pairing link field and tap Use link,
+   or open the link on the phone. On desktop, paste the link into the field.
 3. Check the server and relay hosts, then tap Pair. Pairing replaces the saved
    server URL and API key, then runs Test connection. On the tailnet, the test
    also checks the relay.

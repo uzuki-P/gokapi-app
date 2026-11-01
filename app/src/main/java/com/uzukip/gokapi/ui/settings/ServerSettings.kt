@@ -64,6 +64,7 @@ internal fun ServerSettings(container: AppContainer, pairingLink: String? = null
         if (pairingLink != null && !state.loading) { model.offerPairing(pairingLink); onPairingTaken() }
     }
     var showKey by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     val editable = !state.loading && !state.busy
     GroupLabel("Server")
     Surface(
@@ -118,14 +119,22 @@ internal fun ServerSettings(container: AppContainer, pairingLink: String? = null
                 relayUrl = state.relay?.url,
                 pending = state.pending,
                 enabled = editable,
-                onPaste = {
+                onSubmit = model::offerPairing,
+                readClipboard = {
                     val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
-                    model.offerPairing(clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty())
+                    clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
                 },
                 onConfirm = model::confirmPairing,
                 onCancel = model::cancelPairing,
                 onTurnOff = model::turnOffRelay,
+                onScan = { scanning = true },
             )
+            if (scanning) {
+                PairingScanner(
+                    onScanned = { link -> scanning = false; model.offerPairing(link) },
+                    onDismiss = { scanning = false },
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BouncyTonalButton(
                     onClick = { model.save(test = false) },

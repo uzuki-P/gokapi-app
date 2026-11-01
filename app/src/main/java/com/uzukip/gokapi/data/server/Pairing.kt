@@ -19,7 +19,7 @@ class PairingLink(val device: String, val credentials: ServerCredentials) {
  * the fragment, so opening the link in a browser never sends them to a server.
  */
 fun parsePairingLink(text: String): PairingLink {
-    val invalid = "That isn't a Gokapi pairing link. Run the pair command on the server again."
+    val invalid = "That isn't a Gokapi pairing link. Pair this device again to get a new one."
     val link = text.trim().toHttpUrlOrNull() ?: throw IllegalArgumentException(invalid)
     require(link.isHttps && link.encodedPath == "/pair" && !link.fragment.isNullOrBlank()) { invalid }
     val payload = try {

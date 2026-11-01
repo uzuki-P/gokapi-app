@@ -53,7 +53,10 @@ forwards through a Workers VPC binding to a tunnel with no public hostname
 (`RelayRoute` in `data/server/ServerCredentials.kt`, routing in `GokapiClient`).
 The Worker marks its own refusals with an `X-Relay-Error` header.
 The server's `just pair <device>` prints a `https://<files host>/pair#<payload>`
-link that `data/server/Pairing.kt` parses. The secrets stay in the fragment.
+link that `data/server/Pairing.kt` parses; the files web UI's Devices page
+(`~/projects/_sandbox/gokapi-admin`) shows the same link as a QR code, which
+Android scans with CameraX and zxing-cpp (`ui/settings/PairingScanner.kt`, no
+Google Play services). The secrets stay in the fragment.
 `serverUrl` stays the server's identity whichever route answers. Keep the
 Worker's path allowlist (`~/docker/files/relay/src/worker.js`) in step with any
 new endpoint `GokapiClient` calls.
