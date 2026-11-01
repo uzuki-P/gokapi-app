@@ -18,9 +18,6 @@ import kotlinx.coroutines.withContext
 
 private val Context.credentialDataStore by preferencesDataStore(name = "gokapi_credentials")
 
-// No toString() containing the key, and no SavedStateHandle or Compose saveable state.
-class ServerCredentials(val serverUrl: String, val apiKey: String)
-
 internal class CredentialCipher(private val key: () -> SecretKey) {
     fun encrypt(value: String): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -46,17 +43,37 @@ class CredentialStore(context: Context) {
 
     suspend fun load(): ServerCredentials = withContext(Dispatchers.IO) {
         val preferences = store.data.first()
+        val relay = preferences[RELAY_URL]?.let { url ->
+            RelayRoute(
+                url,
+                preferences[RELAY_ID]?.let(cipher::decrypt).orEmpty(),
+                preferences[RELAY_SECRET]?.let(cipher::decrypt).orEmpty(),
+            )
+        }
         ServerCredentials(
             preferences[URL].orEmpty(),
             preferences[KEY]?.let(cipher::decrypt).orEmpty(),
+            relay,
         )
     }
 
     suspend fun save(credentials: ServerCredentials) = withContext(Dispatchers.IO) {
         val encrypted = cipher.encrypt(credentials.apiKey)
+        val relay = credentials.relay
+        val relayId = relay?.id?.let(cipher::encrypt)
+        val relaySecret = relay?.secret?.let(cipher::encrypt)
         store.edit {
             it[URL] = credentials.serverUrl
             it[KEY] = encrypted
+            if (relay == null) {
+                it -= RELAY_URL
+                it -= RELAY_ID
+                it -= RELAY_SECRET
+            } else {
+                it[RELAY_URL] = relay.url
+                it[RELAY_ID] = relayId!!
+                it[RELAY_SECRET] = relaySecret!!
+            }
         }
         Unit
     }
@@ -85,5 +102,8 @@ class CredentialStore(context: Context) {
         const val ALIAS = "gokapi_api_key"
         val URL = stringPreferencesKey("server_url")
         val KEY = stringPreferencesKey("encrypted_api_key")
+        val RELAY_URL = stringPreferencesKey("relay_url")
+        val RELAY_ID = stringPreferencesKey("encrypted_relay_id")
+        val RELAY_SECRET = stringPreferencesKey("encrypted_relay_secret")
     }
 }

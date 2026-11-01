@@ -32,6 +32,29 @@ key. WorkManager receives encrypted upload passwords and loads the API key
 from the credential store. Credential, push registration, and worker files are
 excluded from backups and device transfers.
 
+## Away from Tailscale
+
+The server can publish its API, and only its API, through a relay: a
+Cloudflare Worker that checks a token for each device and forwards the app's
+API calls through a Cloudflare Tunnel. The tunnel has no public hostname. Each
+device also gets its own Gokapi key. See `~/docker/files/README.md` for the
+server setup.
+
+1. On the server, run `just pair <device>` in `~/docker/files`. It prints a
+   pairing link and QR code. The link is a credential: don't share it.
+2. On the phone, scan the QR code and open the link, which opens Settings in the
+   app. Alternatively, copy the link and tap Paste pairing link. On desktop,
+   paste the link the same way.
+3. Check the server and relay hosts, then tap Pair. Pairing replaces the saved
+   server URL and API key, then runs Test connection. On the tailnet, the test
+   also checks the relay.
+
+Requests try the tailnet URL first. When it doesn't answer within 4 seconds,
+they use the relay for the next 2 minutes, then try the tailnet again. Share
+links, saved downloads, and new-file tracking keep using the tailnet URL, so
+links you copy never point at the public host. Turn off in Settings removes the
+relay. `just unpair <device>` on the server revokes the device.
+
 ## Open shared links
 
 Add this property to the existing, ignored `local.properties` before building:

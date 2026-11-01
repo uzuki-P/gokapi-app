@@ -46,6 +46,18 @@ already in Downloads/Gokapi when its name and size match, across restarts
 too; on Android that only covers copies this install saved. Narrow desktop windows have no pane, so a click there still
 downloads right away.
 
+When the tailnet is unreachable, requests fall back to an optional relay: a
+Cloudflare Worker in `~/docker/files/relay/` that checks the device's
+`X-Relay-Id`/`X-Relay-Secret`, only allows the app's `/api/...` routes, and
+forwards through a Workers VPC binding to a tunnel with no public hostname
+(`RelayRoute` in `data/server/ServerCredentials.kt`, routing in `GokapiClient`).
+The Worker marks its own refusals with an `X-Relay-Error` header.
+The server's `just pair <device>` prints a `https://<files host>/pair#<payload>`
+link that `data/server/Pairing.kt` parses. The secrets stay in the fragment.
+`serverUrl` stays the server's identity whichever route answers. Keep the
+Worker's path allowlist (`~/docker/files/relay/src/worker.js`) in step with any
+new endpoint `GokapiClient` calls.
+
 The main app uses `com.uzukip.gokapi`. The dev flavor uses
 `com.uzukip.gokapi.dev`, has its own Android data, and installs side by side.
 

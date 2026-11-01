@@ -72,6 +72,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     container: AppContainer,
     onBack: () -> Unit = {},
+    pairingLink: String? = null,
+    onPairingTaken: () -> Unit = {},
 ) {
     // Null until DataStore emits: the body waits for the stored values so the
     // toggles and swatch panel don't animate over from defaults on every open
@@ -168,7 +170,7 @@ fun SettingsScreen(
                 if (maxWidth >= TwoPaneMinWidth) {
                     Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                         Column(Modifier.weight(1f)) {
-                            ServerSettings(container)
+                            ServerSettings(container, pairingLink, onPairingTaken)
                             TransferSettings(container, settings)
                         }
                         Column(Modifier.weight(1f)) {
@@ -178,7 +180,7 @@ fun SettingsScreen(
                     }
                 } else {
                     Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().align(Alignment.TopCenter)) {
-                        ServerSettings(container)
+                        ServerSettings(container, pairingLink, onPairingTaken)
                         appearance()
                         haptics()
                         TransferSettings(container, settings)

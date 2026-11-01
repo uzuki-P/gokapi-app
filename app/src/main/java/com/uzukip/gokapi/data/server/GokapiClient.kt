@@ -4,10 +4,12 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.ConnectException
+import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
@@ -25,7 +27,13 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
-class ConnectionReport(val version: String, val canViewFiles: Boolean, val canUpload: Boolean = false)
+enum class Route { DIRECT, RELAY }
+class ConnectionReport(
+    val version: String, val canViewFiles: Boolean, val canUpload: Boolean = false,
+    val route: Route = Route.DIRECT,
+    /** Set when the relay is configured, the tailnet worked, and the relay check failed. */
+    val relayError: String? = null,
+)
 class ConnectionFailure(message: String) : IOException(message)
 class PermissionFailure(val permission: String) : IOException("Access denied. Check the API key and its $permission permission.")
 data class UploadOptions(val expiryDays: Int = 7, val downloads: Int = 0, val password: String = "") {
@@ -47,7 +55,16 @@ class GokapiClient(
         .followRedirects(false).followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .build(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    // Requests try the tailnet URL first. When it is unreachable and the credentials have a
+    // relay, they use the relay for RELAY_HOLD_MS before trying the tailnet again. A failed
+    // connect sent nothing, so any request, uploads included, can be retried on the relay.
+    private val relayUntil = ConcurrentHashMap<String, Long>()
+    // The tailnet name still resolves off the tailnet, so a short connect timeout keeps the
+    // fallback quick.
+    private val direct by lazy { http.newBuilder().connectTimeout(4, TimeUnit.SECONDS).build() }
+
     private suspend fun <T> network(block: suspend () -> T): T = withContext(Dispatchers.IO) {
         try { block() }
         catch (e: CancellationException) { throw e }
@@ -62,9 +79,9 @@ class GokapiClient(
     private fun builder(c: ServerCredentials, path: String) = Request.Builder()
         .url("${c.serverUrl}/api/$path").header("apikey", c.apiKey)
 
-    private suspend fun execute(request: Request, permission: String): Response {
-        val response = suspendCancellableCoroutine<Response> { continuation ->
-            val call = http.newCall(request)
+    private suspend fun send(client: OkHttpClient, request: Request): Response =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -75,9 +92,45 @@ class GokapiClient(
                 }
             })
         }
+
+    private suspend fun sendViaRelay(c: ServerCredentials, relay: RelayRoute, request: Request): Response {
+        val url = request.url.toString()
+        require(url.startsWith(c.serverUrl + "/"))
+        val relayed = request.newBuilder().url(relay.url + url.removePrefix(c.serverUrl))
+            .header("X-Relay-Id", relay.id)
+            .header("X-Relay-Secret", relay.secret)
+            .build()
+        return try { send(http, relayed) } catch (e: IOException) {
+            if (e.unreachable() || e is SocketTimeoutException) {
+                throw ConnectionFailure("Can't reach the files server or its relay. Check your internet connection.")
+            }
+            throw e
+        }
+    }
+
+    private suspend fun execute(c: ServerCredentials, request: Request, permission: String, route: Route? = null): Response {
+        val relay = c.relay
+        val response = when {
+            relay == null -> send(http, request)
+            route == Route.RELAY || (route == null && clock() < (relayUntil[c.serverUrl] ?: 0L)) -> sendViaRelay(c, relay, request)
+            else -> try { send(direct, request) } catch (e: IOException) {
+                if (route != null || !e.unreachable()) throw e
+                relayUntil[c.serverUrl] = clock() + RELAY_HOLD_MS
+                sendViaRelay(c, relay, request)
+            }
+        }
         if (!response.isSuccessful) {
             val code = response.code
+            val relayed = !response.request.url.toString().startsWith(c.serverUrl + "/")
+            val relayError = if (relayed) response.header("X-Relay-Error") else null
             response.close()
+            // The relay Worker marks its own refusals; anything else came from Gokapi.
+            when (relayError) {
+                "unauthorized" -> throw ConnectionFailure("The relay rejected this device. Pair it again on the server.")
+                "rate-limited" -> throw ConnectionFailure("The relay is limiting requests from this device. Try again in a minute.")
+                "not-allowed" -> throw ConnectionFailure("The relay doesn't allow this request. Update the relay on the server.")
+                "upstream-unreachable" -> throw ConnectionFailure("The relay can't reach the files server. Check that the tunnel is running.")
+            }
             if (code == 401 || code == 403) throw PermissionFailure(permission)
             if (code == 404) throw ConnectionFailure("The file was removed or expired.")
             throw ConnectionFailure("Server request failed with HTTP $code.")
@@ -85,31 +138,48 @@ class GokapiClient(
         return response
     }
 
-    private suspend fun body(request: Request, permission: String) = execute(request, permission).use {
+    private suspend fun body(c: ServerCredentials, request: Request, permission: String, route: Route? = null) = execute(c, request, permission, route).use {
         it.body?.string() ?: throw ConnectionFailure("The server returned an empty response.")
     }
 
     // The three checks run at once so a distant server costs one round trip, not three.
     suspend fun testConnection(c: ServerCredentials): ConnectionReport = network {
         coroutineScope {
-            val view = async { try { parseFiles(body(builder(c, "files/list").build(), "VIEW")); true } catch (e: PermissionFailure) { false } }
+            val view = async { try { parseFiles(body(c, builder(c, "files/list").build(), "VIEW")); true } catch (e: PermissionFailure) { false } }
             val upload = async { try { uploadLimitsInternal(c); true } catch (e: PermissionFailure) { false } }
-            val root = Json.parseToJsonElement(body(builder(c, "info/version").build(), "VIEW"))
-            val info = if (root is JsonArray) root.firstOrNull()?.jsonObject else root.jsonObject
-            val version = info?.string("Version")?.takeIf { it.isNotBlank() }
-                ?: throw ConnectionFailure("The server did not return a Gokapi version.")
-            ConnectionReport(version, view.await(), upload.await())
+            val version = version(c, null)
+            val canView = view.await()
+            val canUpload = upload.await()
+            val route = if (c.relay != null && clock() < (relayUntil[c.serverUrl] ?: 0L)) Route.RELAY else Route.DIRECT
+            // On the tailnet, also check the relay so pairing problems show up before leaving home.
+            val relayError = if (c.relay == null || route == Route.RELAY) null else try {
+                version(c, Route.RELAY)
+                null
+            } catch (e: CancellationException) { throw e }
+            catch (e: ConnectionFailure) { e.message }
+            catch (e: PermissionFailure) { "Gokapi rejected the API key on the relay." }
+            catch (e: IOException) { "Couldn't reach the relay." }
+            catch (e: IllegalArgumentException) { "The relay returned an unexpected response." }
+            catch (e: IllegalStateException) { "The relay returned an unexpected response." }
+            ConnectionReport(version, canView, canUpload, route, relayError)
         }
     }
 
+    private suspend fun version(c: ServerCredentials, route: Route?): String {
+        val root = Json.parseToJsonElement(body(c, builder(c, "info/version").build(), "VIEW", route))
+        val info = if (root is JsonArray) root.firstOrNull()?.jsonObject else root.jsonObject
+        return info?.string("Version")?.takeIf { it.isNotBlank() }
+            ?: throw ConnectionFailure("The server did not return a Gokapi version.")
+    }
+
     suspend fun list(c: ServerCredentials): List<GokapiFile> = network {
-        parseFiles(body(builder(c, "files/list").build(), "VIEW"))
+        parseFiles(body(c, builder(c, "files/list").build(), "VIEW"))
     }
     suspend fun get(c: ServerCredentials, id: String): GokapiFile = network {
-        parseFile(Json.parseToJsonElement(body(builder(c, "files/list/${encodePath(id)}").build(), "VIEW")))
+        parseFile(Json.parseToJsonElement(body(c, builder(c, "files/list/${encodePath(id)}").build(), "VIEW")))
     }
     suspend fun delete(c: ServerCredentials, id: String): Unit = network {
-        execute(builder(c, "files/delete").header("id", id).delete().build(), "DELETE").close()
+        execute(c, builder(c, "files/delete").header("id", id).delete().build(), "DELETE").close()
     }
 
     suspend fun download(c: ServerCredentials, f: GokapiFile, target: File, progress: (Long, Long) -> Unit) = network {
@@ -117,7 +187,7 @@ class GokapiClient(
         target.parentFile?.mkdirs()
         val partial = File(target.parentFile, target.name + ".part")
         try {
-            execute(builder(c, "files/download/${encodePath(f.id)}").build(), "DOWNLOAD").use { response ->
+            execute(c, builder(c, "files/download/${encodePath(f.id)}").build(), "DOWNLOAD").use { response ->
                 val source = response.body ?: throw ConnectionFailure("The download was empty.")
                 val total = source.contentLength().takeIf { it >= 0 } ?: f.sizeBytes
                 source.byteStream().use { input ->
@@ -143,7 +213,7 @@ class GokapiClient(
     }
 
     private suspend fun uploadLimitsInternal(c: ServerCredentials): UploadLimits {
-        val root = Json.parseToJsonElement(body(builder(c, "info/config").build(), "UPLOAD"))
+        val root = Json.parseToJsonElement(body(c, builder(c, "info/config").build(), "UPLOAD"))
         val info = if (root is JsonArray) root.first().jsonObject else root.jsonObject
         return UploadLimits(info.long("MaxFilesize") * 1024 * 1024, info.long("MaxChunksize") * 1024 * 1024)
     }
@@ -186,7 +256,7 @@ class GokapiClient(
                 .addFormDataPart("uuid", uuid).addFormDataPart("filesize", size.toString())
                 .addFormDataPart("offset", offset.toString())
                 .addFormDataPart("file", "chunk", chunk).build()
-            val result = Json.parseToJsonElement(body(builder(c, "chunk/add").post(multipart).build(), "UPLOAD")).jsonObject
+            val result = Json.parseToJsonElement(body(c, builder(c, "chunk/add").post(multipart).build(), "UPLOAD")).jsonObject
             // Gokapi 2.2.4 returns lowercase "result" here, despite its OpenAPI schema.
             if (result.string("result", result.string("Result")) != "OK") {
                 throw ConnectionFailure("The server rejected an upload chunk.")
@@ -195,7 +265,7 @@ class GokapiClient(
             progress(offset, size)
         } while (offset < size)
         if (input.read() != -1) throw ConnectionFailure("$name changed size while uploading.")
-        val result = Json.parseToJsonElement(body(builder(c, "chunk/complete")
+        val result = Json.parseToJsonElement(body(c, builder(c, "chunk/complete")
             .header("uuid", uuid)
             .header("filename", "base64:" + Base64.getEncoder().encodeToString(name.toByteArray(Charsets.UTF_8)))
             .header("filesize", size.toString()).header("contenttype", contentType)
@@ -206,6 +276,12 @@ class GokapiClient(
         parseFile(result.getValue("FileInfo"))
     }
 }
+
+private const val RELAY_HOLD_MS = 2 * 60 * 1000L
+
+// Failures where the request never reached the server.
+private fun IOException.unreachable() = this is UnknownHostException || this is ConnectException ||
+    this is NoRouteToHostException || (this is SocketTimeoutException && message.orEmpty().contains("connect", ignoreCase = true))
 
 private fun InputStream.readNBytesCompat(count: Int): ByteArray {
     val result = ByteArray(count)

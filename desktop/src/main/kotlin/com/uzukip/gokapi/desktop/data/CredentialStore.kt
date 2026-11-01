@@ -1,6 +1,7 @@
 package com.uzukip.gokapi.desktop.data
 
 import com.sun.jna.platform.win32.Crypt32Util
+import com.uzukip.gokapi.data.server.RelayRoute
 import com.uzukip.gokapi.data.server.ServerCredentials
 import java.io.File
 import java.nio.file.Files
@@ -12,17 +13,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The server URL and API key in `credentials.properties` under the config directory. On
- * Windows the key is encrypted with DPAPI for the signed-in user. On Linux the file is
+ * The server URL, API key, and optional relay route in `credentials.properties` under the config directory. On
+ * Windows the key and relay secret are encrypted with DPAPI for the signed-in user. On Linux the file is
  * readable by its owner only, the same protection as an SSH key.
  */
 class CredentialStore(private val file: File, private val cipher: KeyCipher = KeyCipher.forCurrentOs()) {
     suspend fun load(): ServerCredentials = withContext(Dispatchers.IO) {
         if (!file.isFile) return@withContext ServerCredentials("", "")
         val properties = Properties().apply { file.inputStream().use(::load) }
+        val relay = properties.getProperty(RELAY_URL)?.let { url ->
+            RelayRoute(
+                url,
+                properties.getProperty(RELAY_ID)?.let(cipher::decrypt).orEmpty(),
+                properties.getProperty(RELAY_SECRET)?.let(cipher::decrypt).orEmpty(),
+            )
+        }
         ServerCredentials(
             properties.getProperty(URL).orEmpty(),
             properties.getProperty(KEY)?.let(cipher::decrypt).orEmpty(),
+            relay,
         )
     }
 
@@ -30,6 +39,11 @@ class CredentialStore(private val file: File, private val cipher: KeyCipher = Ke
         val properties = Properties().apply {
             setProperty(URL, credentials.serverUrl)
             setProperty(KEY, cipher.encrypt(credentials.apiKey))
+            credentials.relay?.let {
+                setProperty(RELAY_URL, it.url)
+                setProperty(RELAY_ID, cipher.encrypt(it.id))
+                setProperty(RELAY_SECRET, cipher.encrypt(it.secret))
+            }
         }
         file.parentFile.mkdirs()
         val temporary = File(file.parentFile, file.name + ".tmp")
@@ -50,6 +64,9 @@ class CredentialStore(private val file: File, private val cipher: KeyCipher = Ke
     private companion object {
         const val URL = "server_url"
         const val KEY = "api_key"
+        const val RELAY_URL = "relay_url"
+        const val RELAY_ID = "relay_id"
+        const val RELAY_SECRET = "relay_secret"
     }
 }
 

@@ -21,6 +21,7 @@ val linkFilter = if (filesHost.isEmpty()) "" else """
         <data android:scheme="https" android:host="$filesHost" />
         <data android:pathPrefix="/d" />
         <data android:pathPrefix="/h/" />
+        <data android:path="/pair" />
     </intent-filter>
 """.trimIndent()
 val generatedManifest = layout.buildDirectory.file("generated/links/AndroidManifest.xml").get().asFile
@@ -44,8 +45,8 @@ android {
         minSdk = 26
         targetSdk = 36
         buildConfigField("String", "FILES_HOST", "\"$filesHost\"")
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.2.0"
     }
 
     sourceSets.getByName("main").manifest.srcFile(generatedManifest)

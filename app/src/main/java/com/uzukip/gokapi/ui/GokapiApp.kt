@@ -11,6 +11,10 @@ import androidx.compose.material3.MaterialTheme
 import android.content.Intent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.navigation.compose.NavHost
@@ -38,7 +42,19 @@ private const val DRIFT_DIVISOR = 10
 @Composable
 fun GokapiApp(container: AppContainer, incomingIntent: Intent? = null, consumeIntent: () -> Unit = {}) {
     val navController = rememberNavController()
-    LaunchedEffect(incomingIntent) { if (incomingIntent != null) navController.popBackStack(Routes.HOME, false) }
+    // A /pair app link goes to Settings, which asks before replacing the server.
+    var pairingLink by remember { mutableStateOf<String?>(null) }
+    val pairing = incomingIntent?.data?.path == "/pair"
+    LaunchedEffect(incomingIntent) {
+        if (incomingIntent == null) return@LaunchedEffect
+        if (pairing) {
+            pairingLink = incomingIntent.dataString
+            consumeIntent()
+            navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+        } else {
+            navController.popBackStack(Routes.HOME, false)
+        }
+    }
     val motion = MaterialTheme.motionScheme
     val spatial = motion.defaultSpatialSpec<IntOffset>()
     val fastEffects = motion.fastEffectsSpec<Float>()
@@ -61,10 +77,10 @@ fun GokapiApp(container: AppContainer, incomingIntent: Intent? = null, consumeIn
         },
     ) {
         composable(Routes.HOME) {
-            HomeScreen(container = container, incomingIntent = incomingIntent, consumeIntent = consumeIntent, onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } })
+            HomeScreen(container = container, incomingIntent = incomingIntent.takeUnless { pairing }, consumeIntent = consumeIntent, onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } })
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(container = container, onBack = { navController.popBackStack() })
+            SettingsScreen(container = container, onBack = { navController.popBackStack() }, pairingLink = pairingLink, onPairingTaken = { pairingLink = null })
         }
     }
 }

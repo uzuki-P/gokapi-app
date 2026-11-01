@@ -1,5 +1,6 @@
 package com.uzukip.gokapi.ui.settings
 
+import android.content.ClipboardManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -19,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -46,15 +49,20 @@ import com.uzukip.gokapi.ui.components.MciIcon
 import com.uzukip.gokapi.ui.components.ThemedTextField
 
 /**
- * Server card: URL and API key fields, Save and Test connection, and a
- * tonal status panel that reports the result.
+ * Server card: URL and API key fields, the relay row, Save and Test connection,
+ * and a tonal status panel that reports the result. [pairingLink] comes from an
+ * opened `/pair` app link and is offered for confirmation once settings load.
  */
 @Composable
-internal fun ServerSettings(container: AppContainer) {
+internal fun ServerSettings(container: AppContainer, pairingLink: String? = null, onPairingTaken: () -> Unit = {}) {
     val model: ServerSettingsViewModel = viewModel(factory = remember(container) {
         viewModelFactory { initializer { ServerSettingsViewModel(container.credentials, container.client) } }
     })
     val state by model.state.collectAsState()
+    val context = LocalContext.current
+    LaunchedEffect(pairingLink, state.loading) {
+        if (pairingLink != null && !state.loading) { model.offerPairing(pairingLink); onPairingTaken() }
+    }
     var showKey by remember { mutableStateOf(false) }
     val editable = !state.loading && !state.busy
     GroupLabel("Server")
@@ -70,7 +78,7 @@ internal fun ServerSettings(container: AppContainer) {
                     Text("Connect your files", style = MaterialTheme.typography.titleLargeEmphasized)
                 }
                 Text(
-                    "Keep Tailscale connected. Use a dedicated android API key with VIEW and DOWNLOAD permissions.",
+                    "Connect over Tailscale, or pair this phone for the relay. Use a dedicated android API key with VIEW and DOWNLOAD permissions.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -105,6 +113,18 @@ internal fun ServerSettings(container: AppContainer) {
                         )
                     }
                 },
+            )
+            RemoteAccess(
+                relayUrl = state.relay?.url,
+                pending = state.pending,
+                enabled = editable,
+                onPaste = {
+                    val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
+                    model.offerPairing(clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty())
+                },
+                onConfirm = model::confirmPairing,
+                onCancel = model::cancelPairing,
+                onTurnOff = model::turnOffRelay,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BouncyTonalButton(

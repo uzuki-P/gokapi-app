@@ -4,6 +4,7 @@ import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.io.File
 import java.io.IOException
@@ -31,6 +32,11 @@ object DesktopShell {
     fun copy(text: String) {
         Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
     }
+
+    /** The clipboard's text, or empty when it holds none. */
+    fun pasteText(): String = runCatching {
+        Toolkit.getDefaultToolkit().systemClipboard.getData(DataFlavor.stringFlavor) as? String
+    }.getOrNull().orEmpty()
 
     /** The native multi-select file picker; empty when cancelled. */
     fun pickFiles(owner: Frame?): List<File> {

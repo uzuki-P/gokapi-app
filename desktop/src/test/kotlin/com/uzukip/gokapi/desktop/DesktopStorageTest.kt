@@ -1,5 +1,6 @@
 package com.uzukip.gokapi.desktop
 
+import com.uzukip.gokapi.data.server.RelayRoute
 import com.uzukip.gokapi.data.server.ServerCredentials
 import com.uzukip.gokapi.desktop.data.CredentialStore
 import com.uzukip.gokapi.desktop.data.PlainCipher
@@ -42,6 +43,19 @@ class DesktopStorageTest {
         if (!AppDirs.isWindows) {
             assertEquals(setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE), Files.getPosixFilePermissions(file.toPath()))
         }
+    }
+
+    @Test
+    fun relayRouteRoundTripsAndClears() = runBlocking {
+        val file = File(root, "config/credentials.properties")
+        val store = CredentialStore(file, PlainCipher)
+        store.save(ServerCredentials("https://files.example.com", "key", RelayRoute("https://files-api.example.org", "pixel-1a2b3c4d", "secret")))
+        val relay = store.load().relay!!
+        assertEquals("https://files-api.example.org", relay.url)
+        assertEquals("pixel-1a2b3c4d", relay.id)
+        assertEquals("secret", relay.secret)
+        store.save(ServerCredentials("https://files.example.com", "key"))
+        assertEquals(null, store.load().relay)
     }
 
     @Test

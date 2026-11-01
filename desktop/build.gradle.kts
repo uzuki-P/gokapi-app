@@ -41,6 +41,8 @@ val buildingOnWindows = System.getProperty("os.name").orEmpty().startsWith("Wind
 val sharedSources = listOf(
     "com/uzukip/gokapi/data/server/GokapiClient.kt",
     "com/uzukip/gokapi/data/server/GokapiFile.kt",
+    "com/uzukip/gokapi/data/server/Pairing.kt",
+    "com/uzukip/gokapi/data/server/ServerCredentials.kt",
     "com/uzukip/gokapi/ui/components/Bouncy.kt",
     "com/uzukip/gokapi/ui/components/Expressive.kt",
     "com/uzukip/gokapi/ui/components/FileDetails.kt",
@@ -49,6 +51,7 @@ val sharedSources = listOf(
     "com/uzukip/gokapi/ui/components/PressScale.kt",
     "com/uzukip/gokapi/ui/components/ThemedTextField.kt",
     "com/uzukip/gokapi/ui/components/TopBar.kt",
+    "com/uzukip/gokapi/ui/settings/RemoteAccess.kt",
     "com/uzukip/gokapi/ui/settings/SettingsComponents.kt",
 )
 val syncSharedSources = tasks.register<Sync>("syncSharedSources") {
