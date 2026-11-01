@@ -23,9 +23,9 @@ jobs:
     env:
       TZ: Asia/Jakarta
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
@@ -51,14 +51,14 @@ jobs:
           keyPassword=$KEY_PASSWORD
           PROPS
 
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Build and stage APK
         run: just stage-apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: gokapi-android-apk
           path: _apk/*.apk
