@@ -55,8 +55,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      # The files host stays out of git; without it the APK can't open share links.
       - name: Build and stage APK
-        run: just stage-apk
+        env:
+          GOKAPI_FILES_HOST: ${{ secrets.GOKAPI_FILES_HOST }}
+        run: |
+          if [ -z "$GOKAPI_FILES_HOST" ]; then
+            echo "::error::GOKAPI_FILES_HOST secret is not set."
+            exit 1
+          fi
+          just stage-apk
 
       - uses: actions/upload-artifact@v7
         with:
