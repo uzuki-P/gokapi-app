@@ -35,6 +35,18 @@ val generateLinkManifest = tasks.register("generateLinkManifest") {
     }
 }
 
+// Every build is versioned `<versionBase>.<commit count>`, like the desktop app, so each commit
+// raises versionName and versionCode and the in-app update check sees the newer APK. Falls back
+// to 1 without git. The justfile reads versionBase from this line.
+val versionBase = "0.2"
+val commitCount: Int =
+    runCatching {
+        providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim().toInt()
+    }.getOrDefault(1).coerceAtLeast(1)
+
 android {
     namespace = "com.uzukip.gokapi"
     compileSdk = 37
@@ -45,8 +57,8 @@ android {
         minSdk = 26
         targetSdk = 36
         buildConfigField("String", "FILES_HOST", "\"$filesHost\"")
-        versionCode = 5
-        versionName = "0.2.0"
+        versionCode = commitCount
+        versionName = "$versionBase.$commitCount"
     }
 
     sourceSets.getByName("main").manifest.srcFile(generatedManifest)

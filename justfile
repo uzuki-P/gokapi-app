@@ -11,6 +11,8 @@ appimage_task := ":desktop:packageAppImageFile"
 appimage_output := "desktop/build/compose/binaries/main/appimage/gokapi-desktop-" + desktop_version + ".AppImage"
 desktop_icon := "desktop/assets/gokapi-desktop.png"
 # On Windows, packageName in desktop/build.gradle.kts is desktop_name.
+# The APK's versionName, `<versionBase>.<commit count>`, matching app/build.gradle.kts.
+apk_version := replace_regex(read("app/build.gradle.kts"), '(?s).*\nval versionBase = "([^"]*)".*', '$1') + "." + `git rev-list --count HEAD`
 exe_output := "desktop/build/compose/binaries/main/exe/" + desktop_name + "-" + desktop_version + ".exe"
 
 # List available recipes
@@ -32,7 +34,7 @@ stage-apk:
     set -euo pipefail
     ./gradlew :app:assembleMainAppRelease
     mkdir -p _apk
-    ver="$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)"
+    ver="{{apk_version}}"
     stamp="$(date +"%-d.%b-%H-%M" | tr 'A-Z' 'a-z')"
     apk="_apk/gokapi-android-${ver}-${stamp}.apk"
     cp app/build/outputs/apk/mainApp/release/app-mainApp-release.apk "$apk"
@@ -57,7 +59,7 @@ build-apk-dev:
     set -euo pipefail
     ./gradlew :app:assembleDevRelease
     mkdir -p _apk
-    ver="$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)"
+    ver="{{apk_version}}"
     stamp="$(date +"%d-%b_%H-%M" | tr 'A-Z' 'a-z')"
     apk="_apk/DEV-gokapi-android-${ver}-dev_${stamp}.apk"
     cp app/build/outputs/apk/dev/release/app-dev-release.apk "$apk"

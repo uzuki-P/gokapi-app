@@ -110,5 +110,8 @@ are 788x2000; scale tap coordinates by about 1.2 for the 945x2400 display.
 
 - Do not commit the real tailnet domain. It belongs in `local.properties`
   (git-ignored) or in the app's runtime settings.
-- Versioning: `versionCode` increments per released build; `versionName` is
-  `MAJOR.MINOR.PATCH`.
+- Versioning: both apps are `<versionBase>.<commit count>` (`versionBase` in
+  `app/build.gradle.kts` and `desktop/build.gradle.kts`), so every commit raises
+  the version; the APK's `versionCode` is the commit count. Commit before
+  building a release, or the build reuses the last commit's version. Bump
+  `versionBase` by hand for a minor or major release.
