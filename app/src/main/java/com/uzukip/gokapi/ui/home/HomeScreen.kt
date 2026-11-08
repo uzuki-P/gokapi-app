@@ -1,5 +1,6 @@
 package com.uzukip.gokapi.ui.home
 
+import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -187,6 +188,19 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
             .apply { clipData = ClipData.newUri(context.contentResolver, item.metadata.name, uri) }.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { context.startActivity(Intent.createChooser(intent.setType("*/*"), "Open file")) }
     }
+    // Android 8 and 9 have no MediaStore Downloads, so there is no Downloads/Gokapi copy to show.
+    val canShowInFolder = Build.VERSION.SDK_INT >= 29
+    // Downloads/Gokapi in the system file manager. Files apps differ in what they accept, so the
+    // folder's document URI comes first, then the Downloads list.
+    val showDownloadsFolder = {
+        val folder = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Download/Gokapi")
+        val intents = listOf(
+            Intent(Intent.ACTION_VIEW).setDataAndType(folder, DocumentsContract.Document.MIME_TYPE_DIR),
+            Intent(DownloadManager.ACTION_VIEW_DOWNLOADS),
+        ).map { it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK) }
+        val opened = intents.any { intent -> try { context.startActivity(intent); true } catch (e: ActivityNotFoundException) { false } }
+        if (!opened) throw ActivityNotFoundException("No file manager can open Downloads/Gokapi.")
+    }
     // The file in the details view: a pane beside the list on tablets, full screen on phones.
     var focusedId by remember { mutableStateOf<String?>(null) }
     val jobs by remember(context) { WorkManager.getInstance(context).getWorkInfosByTagFlow("uploads") }.collectAsState(initial = emptyList())
@@ -261,6 +275,10 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                         context.startActivity(Intent.createChooser(intent, if (uris.size == 1) "Share file" else "Share ${uris.size} files"))
                     }
                     FileAction.OPEN -> openCached(first)
+                    FileAction.SHOW_IN_FOLDER -> if (Build.VERSION.SDK_INT >= 29) {
+                        container.transfers.saveToDownloads(first.file, first.metadata)
+                        showDownloadsFolder()
+                    }
                     FileAction.DOWNLOAD -> {
                         // Android 8 and 9 have no MediaStore Downloads; the file stays in the cache.
                         // A copy already in Downloads/Gokapi is reused instead of saved twice.
@@ -423,6 +441,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                         if (it.isApk) null else DetailAction("open-in-new", "Open") { vibrate(); model.download(it, FileAction.OPEN) },
                         DetailAction("share-variant-outline", "Share file") { vibrate(); model.download(it, FileAction.SHARE) },
                         if (it.isApk) DetailAction("tray-arrow-down", "Save to Downloads") { vibrate(); model.download(it, FileAction.SAVE) } else null,
+                        if (canShowInFolder) DetailAction("folder-open-outline", "Show in folder") { vibrate(); model.download(it, FileAction.SHOW_IN_FOLDER) } else null,
                         DetailAction("link-variant", "Copy link") {
                             vibrate()
                             context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", it.link(state.server)))
@@ -542,6 +561,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
             onOpen = { model.download(file, FileAction.OPEN) },
             onShare = { model.download(file, FileAction.SHARE) },
             onSave = { model.download(file, FileAction.SAVE) },
+            onShowInFolder = if (canShowInFolder) { { model.download(file, FileAction.SHOW_IN_FOLDER) } } else null,
             onCopyLink = {
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Gokapi link", file.link(state.server)))
                 model.dismiss(); model.report("Link copied")
@@ -1044,6 +1064,7 @@ private fun FileActionsSheet(
     onOpen: () -> Unit,
     onShare: () -> Unit,
     onSave: () -> Unit,
+    onShowInFolder: (() -> Unit)?,
     onCopyLink: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -1075,10 +1096,13 @@ private fun FileActionsSheet(
                 Text(if (file.isApk) "Install" else "Open", modifier = Modifier.padding(start = 8.dp))
             }
             SegmentedGroup {
-                ActionRow("share-variant-outline", "Share file", segmentCorners(0, 4), onClick = onShare)
-                ActionRow("tray-arrow-down", "Save to Downloads", segmentCorners(1, 4), onClick = onSave)
-                ActionRow("link-variant", "Copy link", segmentCorners(2, 4), onClick = onCopyLink)
-                ActionRow("trash-can-outline", "Delete file", segmentCorners(3, 4), onClick = onDelete, destructive = true)
+                val count = if (onShowInFolder != null) 5 else 4
+                var index = 0
+                ActionRow("share-variant-outline", "Share file", segmentCorners(index++, count), onClick = onShare)
+                ActionRow("tray-arrow-down", "Save to Downloads", segmentCorners(index++, count), onClick = onSave)
+                if (onShowInFolder != null) ActionRow("folder-open-outline", "Show in folder", segmentCorners(index++, count), onClick = onShowInFolder)
+                ActionRow("link-variant", "Copy link", segmentCorners(index++, count), onClick = onCopyLink)
+                ActionRow("trash-can-outline", "Delete file", segmentCorners(index, count), onClick = onDelete, destructive = true)
             }
         }
     }

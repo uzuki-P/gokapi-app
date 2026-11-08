@@ -321,6 +321,7 @@ internal fun FilesScreen(
                                 onLongClick = { model.toggle(file) },
                                 onOpen = { model.open(file) },
                                 onSave = { model.save(file) },
+                                onShowInFolder = { model.showInFolder(file) },
                                 onCopyLink = { model.copyLinks(listOf(file)) },
                                 onSelect = { model.toggle(file) },
                                 onDelete = { deleteTarget = file },
@@ -346,6 +347,7 @@ internal fun FilesScreen(
                     actions = focused?.let { file ->
                         listOf(
                             DetailAction("open-in-new", "Open") { model.open(file) },
+                            DetailAction("folder-open-outline", "Show in folder") { model.showInFolder(file) },
                             DetailAction("link-variant", "Copy link") { model.copyLinks(listOf(file)) },
                             DetailAction("trash-can-outline", "Delete file", destructive = true) { deleteTarget = file },
                         )
@@ -436,7 +438,7 @@ internal fun FilesScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BouncyTextButton(onClick = {
                         model.dismissPrompt()
-                        scope.launch { runCatching { DesktopShell.open(prompt.location.parentFile) }.onFailure { model.report(it.message ?: "Couldn't open the folder.") } }
+                        model.reveal(prompt.location)
                     }) { Text("Show in folder") }
                     BouncyTextButton(onClick = model::dismissPrompt) { Text("Close") }
                 }
@@ -730,6 +732,7 @@ private fun FileRow(
     onLongClick: () -> Unit,
     onOpen: () -> Unit,
     onSave: () -> Unit,
+    onShowInFolder: () -> Unit,
     onCopyLink: () -> Unit,
     onSelect: () -> Unit,
     onDelete: () -> Unit,
@@ -835,6 +838,7 @@ private fun FileRow(
             ) {
                 MenuEntry("open-in-new", "Open") { menuOpen = false; onOpen() }
                 MenuEntry("tray-arrow-down", "Save to Downloads") { menuOpen = false; onSave() }
+                MenuEntry("folder-open-outline", "Show in folder") { menuOpen = false; onShowInFolder() }
                 MenuEntry("link-variant", "Copy link") { menuOpen = false; onCopyLink() }
                 MenuEntry(if (checked) "checkbox-blank-off-outline" else "checkbox-marked-outline", if (checked) "Deselect" else "Select") { menuOpen = false; onSelect() }
                 MenuEntry("trash-can-outline", "Delete", destructive = true) { menuOpen = false; onDelete() }

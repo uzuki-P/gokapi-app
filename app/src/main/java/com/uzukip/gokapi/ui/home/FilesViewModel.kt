@@ -28,7 +28,7 @@ internal data class FilesState(
     val checkedFiles get() = files.filter { it.id in checked }
 }
 /** DOWNLOAD saves to Downloads/Gokapi, then asks whether to open the file: the default tap. */
-internal enum class FileAction { OPEN, SHARE, SAVE, DOWNLOAD }
+internal enum class FileAction { OPEN, SHARE, SAVE, DOWNLOAD, SHOW_IN_FOLDER }
 internal class CachedFile(val file: File, val metadata: GokapiFile)
 internal class CachedAction(val items: List<CachedFile>, val action: FileAction)
 

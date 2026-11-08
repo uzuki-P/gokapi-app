@@ -57,6 +57,12 @@ already in Downloads/Gokapi when its name and size match, across restarts
 too; on Android that only covers copies this install saved. Narrow desktop windows have no pane, so a click there still
 downloads right away.
 
+Show in folder (details actions, the desktop right-click menu, the Android
+actions sheet) saves the file to Downloads/Gokapi when no copy is there yet,
+then reveals it: selected in Explorer on Windows, through the FileManager1
+D-Bus service on Linux (opening the folder when that fails), and as the
+Downloads/Gokapi folder in the Files app on Android 10 and up.
+
 When the tailnet is unreachable, requests fall back to an optional relay: a
 Cloudflare Worker in `~/docker/files/relay/` that checks the device's
 `X-Relay-Id`/`X-Relay-Secret`, only allows the app's `/api/...` routes, and

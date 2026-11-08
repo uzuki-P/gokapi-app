@@ -108,6 +108,22 @@ internal class FilesModel(private val container: DesktopContainer, private val s
         }
     }
 
+    /** Shows [file] in its folder, saving it to Downloads/Gokapi first when no copy is there yet. */
+    fun showInFolder(file: GokapiFile) {
+        val existing = savedCopy(file)
+        if (existing != null) { reveal(existing); return }
+        single(file) { c -> DesktopShell.reveal(fetch(c, file, uniqueTarget(container.dirs.downloadsDir, file.name))) }
+    }
+
+    /** Shows [location] selected in the file manager. */
+    fun reveal(location: File) {
+        scope.launch {
+            try { DesktopShell.reveal(location) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { report(e.message ?: "Couldn't open the folder.") }
+        }
+    }
+
     /** The default click: saves [file] to Downloads/Gokapi, or reuses a copy already there, then asks to open it. */
     fun download(file: GokapiFile) {
         val existing = savedCopy(file)
