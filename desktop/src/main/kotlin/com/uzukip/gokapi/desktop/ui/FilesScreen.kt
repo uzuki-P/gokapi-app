@@ -25,8 +25,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.border
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,7 +42,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -526,12 +525,16 @@ private fun HomeHeader(server: String, count: Int, loading: Boolean, onRefresh: 
     }
 }
 
-/** File-type toggles; the checked one fills and morphs its shape. */
+/**
+ * File-type toggles; the checked one fills and morphs its shape. They wrap onto more lines
+ * instead of scrolling, since a mouse wheel cannot scroll a row sideways.
+ */
 @Composable
 private fun FilterRow(selected: String, onSelect: (String) -> Unit, modifier: Modifier) {
-    Row(
-        modifier.horizontalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 4.dp),
+    FlowRow(
+        modifier.padding(top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         FileGroups.forEach { option ->
             val checked = selected == option.type
