@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButtonColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.produceState
@@ -23,6 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,31 +86,55 @@ class PreviewSource(
 /** The app's preview source; null shows type badges only. */
 val LocalPreviewSource = staticCompositionLocalOf<PreviewSource?> { null }
 
-private fun GokapiFile.badgeColor() = if (isApk) "#3D8075" else "#6376A8"
+private fun GokapiFile.badgeColor() = "#%06X".format(groupColor().toArgb() and 0xFFFFFF)
+
+/** A filter group: its name (matching [GokapiFile.type]), icon, and the color its files' chips use. */
+@Immutable
+data class FileGroup(val type: String, val glyph: String, val color: Color?)
+
+/** The list's filters in order; All has no color and keeps the theme's tonal look. */
+val FileGroups = listOf(
+    FileGroup("All", "folder-outline", null),
+    FileGroup("APK", "android", Color(0xFF2E7D32)),
+    FileGroup("Windows", "microsoft-windows", Color(0xFF0B63C4)),
+    FileGroup("Linux", "linux", Color(0xFFC25E00)),
+    FileGroup("Images", "image-outline", Color(0xFF7B1FA2)),
+    FileGroup("Media", "play-circle-outline", Color(0xFFAD1457)),
+    FileGroup("Archives", "folder-zip-outline", Color(0xFF8D6E00)),
+    FileGroup("Documents", "file-document-outline", Color(0xFF546E7A)),
+)
+
+/** The fill of [file]'s extension chip: its group's color, so chips and filters match. */
+fun GokapiFile.groupColor(): Color = FileGroups.firstOrNull { it.type == type }?.color ?: Color(0xFF546E7A)
 
 /**
- * The extension chip's fill: one fixed color per family so an APK and an EXE of the same app
- * tell apart at a glance; other extensions get a stable color from the palette.
+ * A group color readable as an icon tint on the current surface: the fill itself on light
+ * themes, lifted toward white on dark ones where the deep fills sink into the background.
  */
-internal fun extensionChipColor(extension: String): Color = when (extension) {
-    "apk", "aab", "xapk" -> Color(0xFF2E7D32)
-    "exe", "msi", "msix" -> Color(0xFF0B63C4)
-    "appimage", "deb", "rpm", "flatpak", "sh" -> Color(0xFFC25E00)
-    "dmg", "pkg" -> Color(0xFF5F6368)
-    "zip", "7z", "rar", "tar", "gz", "tgz", "xz", "zst" -> Color(0xFF8D6E00)
-    "pdf" -> Color(0xFFC62828)
-    "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "avif", "svg" -> Color(0xFF7B1FA2)
-    "mp4", "m4v", "mov", "mkv", "webm", "avi", "3gp" -> Color(0xFFAD1457)
-    "mp3", "m4a", "aac", "flac", "ogg", "opus", "wav" -> Color(0xFF00796B)
-    "md", "markdown", "txt", "log", "json", "csv" -> Color(0xFF546E7A)
-    else -> ChipPalette[Math.floorMod(extension.hashCode(), ChipPalette.size)]
-}
+@Composable
+fun groupAccent(color: Color): Color =
+    if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) lerp(color, Color.White, 0.45f) else color
 
-private val ChipPalette = listOf(Color(0xFF3949AB), Color(0xFF00838F), Color(0xFF6D4C41), Color(0xFF558B2F), Color(0xFF5E35B1))
+/**
+ * Colors for a filter toggle of [group], on the tonal toggle's own tokens: unchecked keeps the
+ * secondary container, checked fills with the group color (All keeps the secondary fill).
+ */
+@Composable
+fun fileGroupToggleColors(group: FileGroup): ToggleButtonColors {
+    val scheme = MaterialTheme.colorScheme
+    return ToggleButtonColors(
+        containerColor = scheme.secondaryContainer,
+        contentColor = scheme.onSecondaryContainer,
+        disabledContainerColor = scheme.onSurface.copy(alpha = 0.1f),
+        disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
+        checkedContainerColor = group.color ?: scheme.secondary,
+        checkedContentColor = if (group.color != null) Color.White else scheme.onSecondary,
+    )
+}
 
 /** The file's extension on a colored chip, set over the thumbnail's bottom-right corner. */
 @Composable
-private fun ExtensionChip(label: String, extension: String, modifier: Modifier = Modifier) {
+private fun ExtensionChip(label: String, color: Color, modifier: Modifier = Modifier) {
     Text(
         label,
         color = Color.White,
@@ -116,7 +144,7 @@ private fun ExtensionChip(label: String, extension: String, modifier: Modifier =
         letterSpacing = 0.3.sp,
         maxLines = 1,
         modifier = modifier
-            .background(extensionChipColor(extension), RoundedCornerShape(6.dp))
+            .background(color, RoundedCornerShape(6.dp))
             .padding(horizontal = 4.dp, vertical = 1.dp),
     )
 }
@@ -130,7 +158,7 @@ fun FileThumbnail(file: GokapiFile, size: Dp) {
     val label = file.extensionLabel
     Box(Modifier.size(size)) {
         FileThumbnailTile(file, size)
-        if (label != null) ExtensionChip(label, file.extension, Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 3.dp))
+        if (label != null) ExtensionChip(label, file.groupColor(), Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 3.dp))
     }
 }
 

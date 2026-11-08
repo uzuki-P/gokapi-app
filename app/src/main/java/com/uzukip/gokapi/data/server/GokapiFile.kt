@@ -27,10 +27,17 @@ data class GokapiFile(
     val isImage get() = contentType.startsWith("image/") || extension in IMAGE_EXTENSIONS
     val isVideo get() = contentType.startsWith("video/") || extension in VIDEO_EXTENSIONS
     val isAudio get() = contentType.startsWith("audio/") || extension in AUDIO_EXTENSIONS
+    val isWindows get() = extension in WINDOWS_EXTENSIONS
+    val isLinux get() = extension in LINUX_EXTENSIONS
+    val isArchive get() = extension in ARCHIVE_EXTENSIONS || contentType == "application/zip"
+    /** The file's filter group, which also picks its chip color (FileGroups in FilePreviews.kt). */
     val type get() = when {
         isApk -> "APK"
+        isWindows -> "Windows"
+        isLinux -> "Linux"
         isImage -> "Images"
         isVideo || isAudio -> "Media"
+        isArchive -> "Archives"
         else -> "Documents"
     }
     val glyph get() = when {
@@ -38,7 +45,8 @@ data class GokapiFile(
         isImage -> "image-outline"
         isVideo -> "video-outline"
         isAudio -> "music-note"
-        extension == "exe" || extension == "msi" -> "microsoft-windows"
+        isWindows -> "microsoft-windows"
+        isLinux -> "linux"
         extension == "md" || extension == "markdown" -> "language-markdown-outline"
         extension == "pdf" || contentType == "application/pdf" -> "file-pdf-box"
         extension == "zip" || contentType == "application/zip" -> "folder-zip-outline"
@@ -66,6 +74,9 @@ data class GokapiFile(
 
 private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "avif")
 private val VIDEO_EXTENSIONS = setOf("mp4", "m4v", "mov", "mkv", "webm", "avi", "3gp")
+private val WINDOWS_EXTENSIONS = setOf("exe", "msi", "msix")
+private val LINUX_EXTENSIONS = setOf("appimage", "deb", "rpm", "flatpak", "sh")
+private val ARCHIVE_EXTENSIONS = setOf("zip", "7z", "rar", "tar", "gz", "tgz", "xz", "zst", "bz2")
 private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav")
 
 internal fun encodePath(value: String): String = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")

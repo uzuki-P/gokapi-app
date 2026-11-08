@@ -117,21 +117,14 @@ import com.uzukip.gokapi.ui.components.MorphSurface
 import com.uzukip.gokapi.ui.components.SearchPill
 import com.uzukip.gokapi.ui.components.SectionHeader
 import com.uzukip.gokapi.ui.components.SegmentGap
+import com.uzukip.gokapi.ui.components.FileGroups
+import com.uzukip.gokapi.ui.components.fileGroupToggleColors
+import com.uzukip.gokapi.ui.components.groupAccent
 import com.uzukip.gokapi.ui.components.segmentCorners
 import java.awt.datatransfer.DataFlavor
 import java.io.File
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-
-private data class FileFilter(val type: String, val glyph: String)
-
-private val Filters = listOf(
-    FileFilter("All", "folder-outline"),
-    FileFilter("APK", "android"),
-    FileFilter("Images", "image-outline"),
-    FileFilter("Documents", "file-document-outline"),
-    FileFilter("Media", "play-circle-outline"),
-)
 
 /** Widest the file list grows; wider windows center it. */
 internal val ContentMaxWidth = 880.dp
@@ -540,17 +533,18 @@ private fun FilterRow(selected: String, onSelect: (String) -> Unit, modifier: Mo
         modifier.horizontalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Filters.forEach { option ->
+        FileGroups.forEach { option ->
             val checked = selected == option.type
             TonalToggleButton(
                 checked = checked,
                 onCheckedChange = { onSelect(option.type) },
                 shapes = ToggleButtonDefaults.shapesFor(40.dp),
+                colors = fileGroupToggleColors(option),
                 elevation = null,
                 contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
                 modifier = Modifier.height(40.dp),
             ) {
-                MciIcon(option.glyph, 18.dp, LocalContentColor.current)
+                MciIcon(option.glyph, 18.dp, if (checked) LocalContentColor.current else option.color?.let { groupAccent(it) } ?: LocalContentColor.current)
                 Text(
                     option.type,
                     style = if (checked) MaterialTheme.typography.labelLargeEmphasized else MaterialTheme.typography.labelLarge,

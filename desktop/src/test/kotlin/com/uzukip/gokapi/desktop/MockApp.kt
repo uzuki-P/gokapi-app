@@ -37,6 +37,8 @@ private class MockGokapi : Dispatcher() {
     private val files = mutableListOf(
         file("a1", "gokapi-android-0.1.4-20-oct_09-12.apk", "application/vnd.android.package-archive", 9_437_184, 600, unlimited = false),
         file("a2", "gokapi-desktop-0.1.22_08-nov_13-04.exe", "application/octet-stream", 106_954_752, 660, unlimited = false),
+        file("a3", "gokapi-desktop-0.1.22.AppImage", "application/octet-stream", 98_566_144, 700, unlimited = false),
+        file("a4", "release-assets.zip", "application/zip", 12_582_912, 3_600, unlimited = false),
         file("b2", "Quarterly report final.pdf", "application/pdf", 1_253_000, 7_200, unlimited = false),
         file("c3", "screenshot-settings-dark.png", "image/png", 412_000, 86_400 * 2, unlimited = true),
         file("d4", "meeting-notes.md", "text/markdown", 3_400, 86_400 * 3, unlimited = false),
