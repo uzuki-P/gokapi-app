@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -82,9 +84,58 @@ val LocalPreviewSource = staticCompositionLocalOf<PreviewSource?> { null }
 
 private fun GokapiFile.badgeColor() = if (isApk) "#3D8075" else "#6376A8"
 
-/** A file row's leading square: the file's thumbnail, a miniature page of text, or its type badge. */
+/**
+ * The extension chip's fill: one fixed color per family so an APK and an EXE of the same app
+ * tell apart at a glance; other extensions get a stable color from the palette.
+ */
+internal fun extensionChipColor(extension: String): Color = when (extension) {
+    "apk", "aab", "xapk" -> Color(0xFF2E7D32)
+    "exe", "msi", "msix" -> Color(0xFF0B63C4)
+    "appimage", "deb", "rpm", "flatpak", "sh" -> Color(0xFFC25E00)
+    "dmg", "pkg" -> Color(0xFF5F6368)
+    "zip", "7z", "rar", "tar", "gz", "tgz", "xz", "zst" -> Color(0xFF8D6E00)
+    "pdf" -> Color(0xFFC62828)
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "avif", "svg" -> Color(0xFF7B1FA2)
+    "mp4", "m4v", "mov", "mkv", "webm", "avi", "3gp" -> Color(0xFFAD1457)
+    "mp3", "m4a", "aac", "flac", "ogg", "opus", "wav" -> Color(0xFF00796B)
+    "md", "markdown", "txt", "log", "json", "csv" -> Color(0xFF546E7A)
+    else -> ChipPalette[Math.floorMod(extension.hashCode(), ChipPalette.size)]
+}
+
+private val ChipPalette = listOf(Color(0xFF3949AB), Color(0xFF00838F), Color(0xFF6D4C41), Color(0xFF558B2F), Color(0xFF5E35B1))
+
+/** The file's extension on a colored chip, set over the thumbnail's bottom-right corner. */
+@Composable
+private fun ExtensionChip(label: String, extension: String, modifier: Modifier = Modifier) {
+    Text(
+        label,
+        color = Color.White,
+        fontSize = 9.sp,
+        lineHeight = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.3.sp,
+        maxLines = 1,
+        modifier = modifier
+            .background(extensionChipColor(extension), RoundedCornerShape(6.dp))
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
+}
+
+/**
+ * A file row's leading square: the file's thumbnail, a miniature page of text, or its type
+ * badge, with its extension on a colored chip at the bottom-right.
+ */
 @Composable
 fun FileThumbnail(file: GokapiFile, size: Dp) {
+    val label = file.extensionLabel
+    Box(Modifier.size(size)) {
+        FileThumbnailTile(file, size)
+        if (label != null) ExtensionChip(label, file.extension, Modifier.align(Alignment.BottomEnd).offset(x = 5.dp, y = 3.dp))
+    }
+}
+
+@Composable
+private fun FileThumbnailTile(file: GokapiFile, size: Dp) {
     val shape = RoundedCornerShape(16.dp)
     when (val shown = LocalPreviewSource.current?.preview(file, PreviewSize.SMALL)) {
         is ShownPreview.Picture -> Box(Modifier.size(size).clip(shape)) {

@@ -19,7 +19,10 @@ data class GokapiFile(
     val encrypted: Boolean = false,
 ) {
     // Uploads from scripts often arrive as application/octet-stream, so the extension decides too.
-    private val extension get() = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+    val extension get() = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+    /** The extension as a short label for the list's type chip, or null when the name has none. */
+    val extensionLabel get() = extension.takeIf { it.isNotBlank() && it.length <= 8 && '/' !in it }
+        ?.let { if (it == "appimage") "AppImg" else it.take(4).uppercase(Locale.ROOT) }
     val isApk get() = extension == "apk" || contentType == "application/vnd.android.package-archive"
     val isImage get() = contentType.startsWith("image/") || extension in IMAGE_EXTENSIONS
     val isVideo get() = contentType.startsWith("video/") || extension in VIDEO_EXTENSIONS
