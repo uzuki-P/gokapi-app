@@ -18,19 +18,27 @@ data class GokapiFile(
     val hotlinkId: String,
     val encrypted: Boolean = false,
 ) {
-    val isApk get() = name.endsWith(".apk", true) || contentType == "application/vnd.android.package-archive"
-    val isImage get() = contentType.startsWith("image/")
+    // Uploads from scripts often arrive as application/octet-stream, so the extension decides too.
+    private val extension get() = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+    val isApk get() = extension == "apk" || contentType == "application/vnd.android.package-archive"
+    val isImage get() = contentType.startsWith("image/") || extension in IMAGE_EXTENSIONS
+    val isVideo get() = contentType.startsWith("video/") || extension in VIDEO_EXTENSIONS
+    val isAudio get() = contentType.startsWith("audio/") || extension in AUDIO_EXTENSIONS
     val type get() = when {
         isApk -> "APK"
         isImage -> "Images"
-        contentType.startsWith("video/") || contentType.startsWith("audio/") -> "Media"
+        isVideo || isAudio -> "Media"
         else -> "Documents"
     }
     val glyph get() = when {
         isApk -> "android"
         isImage -> "image-outline"
-        contentType.startsWith("video/") -> "video-outline"
-        contentType.startsWith("audio/") -> "music-note"
+        isVideo -> "video-outline"
+        isAudio -> "music-note"
+        extension == "exe" || extension == "msi" -> "microsoft-windows"
+        extension == "md" || extension == "markdown" -> "language-markdown-outline"
+        extension == "pdf" || contentType == "application/pdf" -> "file-pdf-box"
+        extension == "zip" || contentType == "application/zip" -> "folder-zip-outline"
         else -> "file-document-outline"
     }
     fun expiry(now: Long = System.currentTimeMillis() / 1000): String = when {
@@ -52,6 +60,10 @@ data class GokapiFile(
         if (imageHotlink && isImage && hotlinkId.isNotBlank()) "$server/h/${encodePath(hotlinkId)}"
         else "$server/d?id=${encodePath(id)}"
 }
+
+private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "avif")
+private val VIDEO_EXTENSIONS = setOf("mp4", "m4v", "mov", "mkv", "webm", "avi", "3gp")
+private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wav")
 
 internal fun encodePath(value: String): String = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 internal fun JsonObject.string(name: String, fallback: String = "") = this[name]?.jsonPrimitive?.contentOrNull ?: fallback

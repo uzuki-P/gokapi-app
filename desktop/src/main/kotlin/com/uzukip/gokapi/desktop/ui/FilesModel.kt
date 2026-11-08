@@ -77,8 +77,10 @@ internal class FilesModel(private val container: DesktopContainer, private val s
             try {
                 val c = credentials()
                 if (state.value.server.isNotBlank() && state.value.server != c.serverUrl) mutableState.update { it.copy(files = emptyList(), server = c.serverUrl) }
+                container.usePreviews(c)
                 val files = container.client.list(c)
                 val ids = files.mapTo(HashSet(), GokapiFile::id)
+                container.previews.retain(ids)
                 mutableState.update { it.copy(files = files, server = c.serverUrl, needsSetup = false, loading = false, checked = it.checked intersect ids) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {

@@ -31,7 +31,6 @@ androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-mani
 
 androidx-work = { module = "androidx.work:work-runtime-ktx", version = "2.10.5" }
 unifiedpush = { module = "org.unifiedpush.android:connector", version = "3.3.5" }
-coil-compose = { module = "io.coil-kt:coil-compose", version = "2.7.0" }
 androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }

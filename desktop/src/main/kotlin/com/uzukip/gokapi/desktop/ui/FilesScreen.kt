@@ -110,6 +110,7 @@ import com.uzukip.gokapi.ui.components.BouncyIconButton
 import com.uzukip.gokapi.ui.components.BouncyTextButton
 import com.uzukip.gokapi.ui.components.Corners
 import com.uzukip.gokapi.ui.components.EmptyState
+import com.uzukip.gokapi.ui.components.FileThumbnail
 import com.uzukip.gokapi.ui.components.IconBadge
 import com.uzukip.gokapi.ui.components.MciIcon
 import com.uzukip.gokapi.ui.components.MorphSurface
@@ -350,7 +351,6 @@ internal fun FilesScreen(
                         )
                     }.orEmpty(),
                     progress = progress,
-                    preview = { file -> ImagePreview(file, state.server) },
                     modifier = Modifier.align(Alignment.TopEnd).width(paneWidth).fillMaxHeight().padding(top = 24.dp, end = 24.dp, bottom = 24.dp),
                 )
             }
@@ -715,27 +715,6 @@ private fun ErrorCard(message: String, needsSetup: Boolean, onAction: () -> Unit
     }
 }
 
-@Composable
-private fun FileThumbnail(file: GokapiFile, server: String) {
-    val bitmap = if (file.isImage && file.hotlinkId.isNotBlank() && !file.encrypted) Thumbnails.remember(file.link(server, true)).value else null
-    if (bitmap != null) {
-        Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)))
-    } else {
-        IconBadge(file.glyph, if (file.isApk) "#3D8075" else "#6376A8", 48.dp)
-    }
-}
-
-/** The details pane's image: the whole picture, fitted, or the type badge while it loads. */
-@Composable
-private fun ImagePreview(file: GokapiFile, server: String) {
-    val bitmap = Thumbnails.preview(file.link(server, true)).value
-    if (bitmap != null) {
-        Image(bitmap, contentDescription = file.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-    } else {
-        LoadingIndicator(Modifier.size(48.dp))
-    }
-}
-
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun FileRow(
@@ -805,7 +784,7 @@ private fun FileRow(
                         Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(end = 14.dp))
                     }
                     Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        FileThumbnail(file, server)
+                        FileThumbnail(file, 48.dp)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(file.name, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("${file.size} · ${file.age()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -128,7 +128,6 @@ kotlin {
 dependencies {
     implementation(libs.androidx.work)
     implementation(libs.unifiedpush)
-    implementation(libs.coil.compose)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)

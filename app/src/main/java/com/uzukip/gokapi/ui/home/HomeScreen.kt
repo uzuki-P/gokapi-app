@@ -113,7 +113,6 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import coil.compose.AsyncImage
 import com.uzukip.gokapi.AppContainer
 import com.uzukip.gokapi.BuildConfig
 import com.uzukip.gokapi.LocalVibrate
@@ -130,6 +129,7 @@ import com.uzukip.gokapi.ui.components.BouncyTextButton
 import com.uzukip.gokapi.ui.components.BouncyTonalButton
 import com.uzukip.gokapi.ui.components.Corners
 import com.uzukip.gokapi.ui.components.EmptyState
+import com.uzukip.gokapi.ui.components.FileThumbnail
 import com.uzukip.gokapi.ui.components.IconBadge
 import com.uzukip.gokapi.ui.components.MciIcon
 import com.uzukip.gokapi.ui.components.MorphSurface
@@ -433,14 +433,6 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                 }.orEmpty(),
                 progress = progress,
                 badge = if (update) { { UpdateBadge() } } else null,
-                preview = { shown ->
-                    AsyncImage(
-                        model = shown.link(state.server, true),
-                        contentDescription = shown.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                },
                 modifier = modifier,
             )
         }
@@ -925,22 +917,6 @@ private fun ErrorCard(message: String, needsSetup: Boolean, onAction: () -> Unit
 }
 
 @Composable
-private fun FileThumbnail(file: GokapiFile, server: String, size: androidx.compose.ui.unit.Dp) {
-    if (file.isImage && file.hotlinkId.isNotBlank() && !file.encrypted) {
-        AsyncImage(
-            model = file.link(server, true),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(size)
-                .clip(RoundedCornerShape(16.dp)),
-        )
-    } else {
-        IconBadge(file.glyph, if (file.isApk) "#3D8075" else "#6376A8", size)
-    }
-}
-
-@Composable
 private fun FileRow(
     file: GokapiFile,
     server: String,
@@ -998,7 +974,7 @@ private fun FileRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    FileThumbnail(file, server, 48.dp)
+                    FileThumbnail(file, 48.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(file.name, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(

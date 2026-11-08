@@ -56,6 +56,8 @@ class GokapiClient(
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .build(),
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Where the thumbnail service is for a server URL; tests point it at a mock server. */
+    private val thumbsBase: (String) -> String? = ::thumbsUrl,
 ) {
     // Requests try the tailnet URL first. When it is unreachable and the credentials have a
     // relay, they use the relay for RELAY_HOLD_MS before trying the tailnet again. A failed
@@ -172,6 +174,47 @@ class GokapiClient(
             ?: throw ConnectionFailure("The server did not return a Gokapi version.")
     }
 
+    /**
+     * The file's preview from the thumbnail service: at [thumbsUrl] on the tailnet, or at
+     * the relay's `/api/thumbnail/...` route when the tailnet is unreachable. Null when the
+     * answer is unknown (both unreachable, the service busy, an error), so nothing gets
+     * cached for it.
+     */
+    suspend fun preview(c: ServerCredentials, f: GokapiFile, size: PreviewSize): FilePreview? = withContext(Dispatchers.IO) {
+        if (f.encrypted) return@withContext FilePreview.None
+        val path = "/api/thumbnail/${encodePath(f.id)}?size=${size.query}"
+        val relay = c.relay
+        fun viaRelay(r: RelayRoute) = Request.Builder().url(r.url + path).header("apikey", c.apiKey)
+            .header("X-Relay-Id", r.id).header("X-Relay-Secret", r.secret).build()
+        try {
+            val base = thumbsBase(c.serverUrl)
+            // The file list already found the tailnet unreachable: go straight to the relay.
+            val response = if (relay != null && (base == null || clock() < (relayUntil[c.serverUrl] ?: 0L))) {
+                send(http, viaRelay(relay))
+            } else if (base == null) {
+                return@withContext null
+            } else {
+                val direct = Request.Builder().url(base + path).header("apikey", c.apiKey).build()
+                try { send(if (relay != null) this@GokapiClient.direct else http, direct) } catch (e: IOException) {
+                    if (relay == null || !e.unreachable()) throw e
+                    send(http, viaRelay(relay))
+                }
+            }
+            response.use {
+                val body = it.body
+                when {
+                    it.code == 204 -> FilePreview.None
+                    it.code != 200 || body == null -> null
+                    body.contentLength() > MAX_PREVIEW_BYTES -> null
+                    body.contentType()?.type == "image" -> FilePreview.Image(body.bytes())
+                    body.contentType()?.type == "text" -> FilePreview.Text(body.string())
+                    else -> null
+                }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: IOException) { null }
+    }
+
     suspend fun list(c: ServerCredentials): List<GokapiFile> = network {
         parseFiles(body(c, builder(c, "files/list").build(), "VIEW"))
     }
@@ -278,6 +321,7 @@ class GokapiClient(
 }
 
 private const val RELAY_HOLD_MS = 2 * 60 * 1000L
+private const val MAX_PREVIEW_BYTES = 4L * 1024 * 1024
 
 // Failures where the request never reached the server.
 private fun IOException.unreachable() = this is UnknownHostException || this is ConnectException ||

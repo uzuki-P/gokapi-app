@@ -63,8 +63,10 @@ internal class FilesViewModel(private val container: AppContainer) : ViewModel()
             try {
                 val c = credentials()
                 if (state.value.server.isNotBlank() && state.value.server != c.serverUrl) mutableState.value = state.value.copy(files = emptyList(), server = c.serverUrl)
+                container.usePreviews(c)
                 val files = container.client.list(c)
                 val ids = files.mapTo(HashSet(), GokapiFile::id)
+                container.previews.retain(ids)
                 mutableState.value = state.value.copy(files = files, server = c.serverUrl, needsSetup = false, loading = false, checked = state.value.checked intersect ids)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {

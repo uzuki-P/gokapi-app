@@ -1,5 +1,8 @@
 package com.uzukip.gokapi.desktop.ui
 
+import com.uzukip.gokapi.ui.components.LocalPreviewSource
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -69,7 +72,12 @@ internal fun DesktopApp(
         label = "screen",
     ) { target ->
         when (target) {
-            Screen.HOME -> FilesScreen(files, keys, onPickFiles, uploadPending, onUploadHandled = { uploadPending = false }, onOpenSettings = { screen = Screen.SETTINGS })
+            Screen.HOME -> {
+                val previews by container.previewSource.collectAsState()
+                CompositionLocalProvider(LocalPreviewSource provides previews) {
+                    FilesScreen(files, keys, onPickFiles, uploadPending, onUploadHandled = { uploadPending = false }, onOpenSettings = { screen = Screen.SETTINGS })
+                }
+            }
             Screen.SETTINGS -> SettingsScreen(
                 container,
                 keys,

@@ -12,6 +12,9 @@ import android.content.Intent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import com.uzukip.gokapi.ui.components.LocalPreviewSource
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,7 +80,10 @@ fun GokapiApp(container: AppContainer, incomingIntent: Intent? = null, consumeIn
         },
     ) {
         composable(Routes.HOME) {
-            HomeScreen(container = container, incomingIntent = incomingIntent.takeUnless { pairing }, consumeIntent = consumeIntent, onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } })
+            val previews by container.previewSource.collectAsState()
+            CompositionLocalProvider(LocalPreviewSource provides previews) {
+                HomeScreen(container = container, incomingIntent = incomingIntent.takeUnless { pairing }, consumeIntent = consumeIntent, onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } })
+            }
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(container = container, onBack = { navController.popBackStack() }, pairingLink = pairingLink, onPairingTaken = { pairingLink = null })

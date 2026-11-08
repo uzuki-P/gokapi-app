@@ -23,11 +23,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,8 +43,8 @@ class DetailAction(val glyph: String, val label: String, val destructive: Boolea
 /**
  * The details pane of the wide layout, shared by the Android app on tablets and the desktop
  * app: a large preview, the file's name and facts, a primary action, then the other actions
- * as a segmented list. With no file it shows a hint. [preview] draws the image of an image
- * file (Coil on Android, the desktop's thumbnail loader); null falls back to the type badge.
+ * as a segmented list. With no file it shows a hint. The preview comes from
+ * [LocalPreviewSource] (the server's thumbnail service), with the type badge as fallback.
  * Pure Compose, so the desktop app compiles it from here (desktop/build.gradle.kts).
  */
 @Composable
@@ -57,7 +55,6 @@ fun FileDetailsPane(
     progress: Float?,
     modifier: Modifier = Modifier,
     badge: @Composable (() -> Unit)? = null,
-    preview: (@Composable (GokapiFile) -> Unit)? = null,
 ) {
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
@@ -82,7 +79,7 @@ fun FileDetailsPane(
                     )
                 }
             } else {
-                Details(shown, primary, actions, progress, badge, preview)
+                Details(shown, primary, actions, progress, badge)
             }
         }
     }
@@ -95,7 +92,6 @@ private fun Details(
     actions: List<DetailAction>,
     progress: Float?,
     badge: @Composable (() -> Unit)?,
-    preview: (@Composable (GokapiFile) -> Unit)?,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -107,15 +103,7 @@ private fun Details(
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 10f),
         ) {
             BoxWithConstraints(contentAlignment = Alignment.Center) {
-                if (preview != null && file.isImage && file.hotlinkId.isNotBlank() && !file.encrypted) {
-                    preview(file)
-                } else {
-                    IconBadge(
-                        file.glyph, if (file.isApk) "#3D8075" else "#6376A8",
-                        (maxHeight * 0.45f).coerceAtMost(120.dp),
-                        shape = MaterialShapes.Cookie9Sided.toShape(),
-                    )
-                }
+                FileLargePreview(file, (maxHeight * 0.45f).coerceAtMost(120.dp))
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

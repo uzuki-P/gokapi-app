@@ -38,6 +38,17 @@ apps). Settings switch to two columns at the same width. Narrower screens keep
 the phone layout. `AppFlowsTest.tabletTapShowsDetailsThenDownloads` forces
 a 1280x800dp tablet on any emulator.
 
+File thumbnails and previews come from the server's thumbnail service
+(`~/docker/files/thumbs`, design in `~/docker/files/docs/thumbnails.md`):
+`GET /api/thumbnail/{id}?size=s|l` with the app's API key, at the server host
+with `-thumbs` added to its first label (`thumbsUrl` in
+`data/server/Previews.kt`). It answers a WebP image, the first lines of a text
+file, or 204 for none. Off the tailnet the same path goes through the relay
+Worker, which sends it to the service on a second VPC binding. `PreviewStore`
+caches answers on disk by file ID, and `ui/components/FilePreviews.kt` draws
+them in both apps through `LocalPreviewSource`. File types also come from the
+extension, since uploads often arrive as `application/octet-stream`.
+
 Tapping or clicking a file shows its details: in the pane on wide layouts,
 full screen on Android phones. The details' Download saves the file to
 Downloads/Gokapi, then asks whether to open it (Install on an APK downloads,
