@@ -117,6 +117,7 @@ import com.uzukip.gokapi.ui.components.SearchPill
 import com.uzukip.gokapi.ui.components.SectionHeader
 import com.uzukip.gokapi.ui.components.SegmentGap
 import com.uzukip.gokapi.ui.components.FileGroups
+import com.uzukip.gokapi.ui.components.groupCounts
 import com.uzukip.gokapi.ui.components.fileGroupToggleColors
 import com.uzukip.gokapi.ui.components.groupAccent
 import com.uzukip.gokapi.ui.components.segmentCorners
@@ -236,7 +237,7 @@ internal fun FilesScreen(
                     SearchPill(value = query, onValueChange = { query = it }, placeholder = "Search files", modifier = column)
                 }
                 item(key = "filters") {
-                    FilterRow(selected = filter, onSelect = { filter = it }, modifier = column)
+                    FilterRow(selected = filter, counts = groupCounts(state.files.filter { it.name.contains(query, ignoreCase = true) }), onSelect = { filter = it }, modifier = column)
                 }
                 if (state.uploads.isNotEmpty()) {
                     item(key = "uploads-header") { SectionHeader(title = "Uploading", modifier = column) }
@@ -526,11 +527,12 @@ private fun HomeHeader(server: String, count: Int, loading: Boolean, onRefresh: 
 }
 
 /**
- * File-type toggles; the checked one fills and morphs its shape. They wrap onto more lines
- * instead of scrolling, since a mouse wheel cannot scroll a row sideways.
+ * File-type toggles with how many files each shows; the checked one fills and morphs its
+ * shape. They wrap onto more lines instead of scrolling, since a mouse wheel cannot scroll a
+ * row sideways.
  */
 @Composable
-private fun FilterRow(selected: String, onSelect: (String) -> Unit, modifier: Modifier) {
+private fun FilterRow(selected: String, counts: Map<String, Int>, onSelect: (String) -> Unit, modifier: Modifier) {
     FlowRow(
         modifier.padding(top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -552,6 +554,12 @@ private fun FilterRow(selected: String, onSelect: (String) -> Unit, modifier: Mo
                     option.type,
                     style = if (checked) MaterialTheme.typography.labelLargeEmphasized else MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(start = 8.dp),
+                )
+                Text(
+                    "${counts[option.type] ?: 0}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LocalContentColor.current.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(start = 6.dp),
                 )
             }
         }

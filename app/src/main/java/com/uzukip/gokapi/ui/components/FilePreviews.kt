@@ -104,6 +104,10 @@ val FileGroups = listOf(
     FileGroup("Documents", "file-document-outline", Color(0xFF546E7A)),
 )
 
+/** How many of [files] each filter shows, keyed by [FileGroup.type]; All counts them all. */
+fun groupCounts(files: List<GokapiFile>): Map<String, Int> =
+    files.groupingBy { it.type }.eachCount() + ("All" to files.size)
+
 /** The fill of [file]'s extension chip: its group's color, so chips and filters match. */
 fun GokapiFile.groupColor(): Color = FileGroups.firstOrNull { it.type == type }?.color ?: Color(0xFF546E7A)
 

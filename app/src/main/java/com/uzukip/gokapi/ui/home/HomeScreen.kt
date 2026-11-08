@@ -26,7 +26,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.horizontalScroll
 import com.uzukip.gokapi.ui.components.TwoPaneMinWidth
 import com.uzukip.gokapi.ui.components.FileDetailsPane
 import com.uzukip.gokapi.ui.components.DetailAction
@@ -36,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -54,7 +54,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -139,6 +138,7 @@ import com.uzukip.gokapi.ui.components.SectionHeader
 import com.uzukip.gokapi.ui.components.SegmentGap
 import com.uzukip.gokapi.ui.components.SegmentedGroup
 import com.uzukip.gokapi.ui.components.FileGroups
+import com.uzukip.gokapi.ui.components.groupCounts
 import com.uzukip.gokapi.ui.components.fileGroupToggleColors
 import com.uzukip.gokapi.ui.components.groupAccent
 import com.uzukip.gokapi.ui.components.segmentCorners
@@ -335,7 +335,7 @@ fun HomeScreen(container: AppContainer, incomingIntent: Intent?, consumeIntent: 
                     SearchPill(value = query, onValueChange = { query = it }, placeholder = "Search files")
                 }
                 item(key = "filters") {
-                    FilterRow(selected = filter, onSelect = { vibrate(); filter = it })
+                    FilterRow(selected = filter, counts = groupCounts(state.files.filter { it.name.contains(query, ignoreCase = true) }), onSelect = { vibrate(); filter = it })
                 }
                 if (activeJobs.isNotEmpty()) {
                     item(key = "uploads-header") { SectionHeader(title = "Uploading") }
@@ -705,15 +705,18 @@ private fun HomeHeader(server: String, count: Int, onOpenSettings: () -> Unit) {
     }
 }
 
-/** Scrollable file-type toggles; the checked one fills and morphs its shape. */
+/**
+ * File-type toggles with how many files each shows; the checked one fills and morphs its
+ * shape. They wrap onto more lines so every filter stays in view.
+ */
 @Composable
-private fun FilterRow(selected: String, onSelect: (String) -> Unit) {
-    Row(
+private fun FilterRow(selected: String, counts: Map<String, Int>, onSelect: (String) -> Unit) {
+    FlowRow(
         Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         FileGroups.forEach { option ->
             val checked = selected == option.type
@@ -730,6 +733,12 @@ private fun FilterRow(selected: String, onSelect: (String) -> Unit) {
                     option.type,
                     style = if (checked) MaterialTheme.typography.labelLargeEmphasized else MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(start = 8.dp),
+                )
+                Text(
+                    "${counts[option.type] ?: 0}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LocalContentColor.current.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(start = 6.dp),
                 )
             }
         }
