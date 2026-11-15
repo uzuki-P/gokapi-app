@@ -65,8 +65,10 @@ Add this property to the existing, ignored `local.properties` before building:
 gokapi.filesHost=files.your-private-domain
 ```
 
-Use a hostname without a scheme or path. If the property is missing, the build
-omits the link intent filter. Settings, Open links opens Android's Open by
+Use a hostname without a scheme or path. Builds without `local.properties`
+read the `GOKAPI_FILES_HOST` environment variable instead; the CI APK workflow
+sets it from the repo secret of the same name and fails when it is missing.
+If neither is set, the build omits the link intent filter. Settings, Open links opens Android's Open by
 default page and reports whether the files host is approved. `/d?id=...` and
 `/h/...` links resolve against the server configured in the app. Links for a
 different server are rejected.

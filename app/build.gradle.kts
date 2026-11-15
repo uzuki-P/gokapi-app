@@ -11,7 +11,8 @@ val localConfig = Properties().apply {
     val configFile = rootProject.file("local.properties")
     if (configFile.exists()) configFile.inputStream().use(::load)
 }
-val filesHost = localConfig.getProperty("gokapi.filesHost", "").trim()
+// CI has no local.properties, so it passes the host as GOKAPI_FILES_HOST (a repo secret).
+val filesHost = (localConfig.getProperty("gokapi.filesHost") ?: providers.environmentVariable("GOKAPI_FILES_HOST").orNull ?: "").trim()
 require(filesHost.isEmpty() || filesHost.matches(Regex("[A-Za-z0-9.-]+"))) { "gokapi.filesHost must be a hostname." }
 val linkFilter = if (filesHost.isEmpty()) "" else """
     <intent-filter android:autoVerify="true">
