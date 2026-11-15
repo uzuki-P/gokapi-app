@@ -19,6 +19,7 @@ import com.uzukip.gokapi.desktop.platform.AppDirs
 import com.uzukip.gokapi.desktop.platform.AppTrayModel
 import com.uzukip.gokapi.desktop.platform.AppTrays
 import com.uzukip.gokapi.desktop.platform.DesktopShell
+import com.uzukip.gokapi.desktop.platform.ExplorerMenu
 import com.uzukip.gokapi.desktop.platform.Launch
 import com.uzukip.gokapi.desktop.platform.SingleInstance
 import com.uzukip.gokapi.desktop.platform.setLinuxWmClass
@@ -28,6 +29,11 @@ import com.uzukip.gokapi.ui.theme.GokapiTheme
 import java.awt.Dimension
 import java.awt.EventQueue
 import java.awt.Frame
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,14 +41,22 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlin.concurrent.thread
 import org.jetbrains.skia.Image
 
-fun main() = runApp(DesktopContainer())
+fun main(args: Array<String>) = runApp(DesktopContainer(), args = args.toList())
 
-/** Opens the app window for [container]; the mock app in the tests passes one with fake data. */
-fun runApp(container: DesktopContainer, title: String = "Files - Gokapi Desktop") {
+/**
+ * Opens the app window for [container]; the mock app in the tests passes one with fake data.
+ * File paths in [args], as Explorer's Upload to Gokapi passes them, open the upload dialog.
+ */
+fun runApp(container: DesktopContainer, title: String = "Files - Gokapi Desktop", args: List<String> = emptyList()) {
+    val launchFiles = args.map(::File).filter(File::isFile)
     // A second launch, for example from the app menu while the window sits in the tray,
-    // shows the running app's window instead of starting another app.
-    val launch = SingleInstance.acquire(container.dirs.configDir)
+    // shows the running app's window instead of starting another app, and hands it its files.
+    val launch = SingleInstance.acquire(container.dirs.configDir, launchFiles)
     if (launch !is Launch.Primary) return
+    // Files to upload from this launch and later ones; the file list opens the upload dialog.
+    val incomingUploads = Channel<List<File>>(Channel.UNLIMITED)
+    if (launchFiles.isNotEmpty()) incomingUploads.trySend(launchFiles)
+    val incomingUploadFlow = incomingUploads.receiveAsFlow()
     // Before any window exists, so KDE matches windows to the gokapi-desktop launcher entry.
     setLinuxWmClass(AppDirs.APP_ID)
     val icon = object {}.javaClass.getResourceAsStream("/icons/gokapi-desktop.png")!!.use {
@@ -85,12 +99,20 @@ fun runApp(container: DesktopContainer, title: String = "Files - Gokapi Desktop"
         DisposableEffect(tray) {
             tray.start()
             watcher.start()
-            launch.instance?.listen { showWindow() }
+            launch.instance?.listen { files ->
+                showWindow()
+                if (files.isNotEmpty()) incomingUploads.trySend(files)
+            }
             onDispose {
                 watcher.stop()
                 tray.close()
                 launch.instance?.close()
             }
+        }
+        // Explorer's Upload to Gokapi entry follows the setting (installed Windows app only).
+        LaunchedEffect(settings.explorerMenu) {
+            val enabled = settings.explorerMenu
+            withContext(Dispatchers.IO) { ExplorerMenu.sync(enabled) }
         }
         val trayAvailable by tray.available.collectAsState()
         val visible by windowVisible.collectAsState()
@@ -107,7 +129,7 @@ fun runApp(container: DesktopContainer, title: String = "Files - Gokapi Desktop"
             LaunchedEffect(Unit) { window.minimumSize = Dimension(480, 560) }
             RaiseWindowEffect(window, raiseRequests)
             GokapiTheme(settings) {
-                DesktopApp(container, keys, trayAvailable, uploadRequests, fileEvents, onPickFiles = { DesktopShell.pickFiles(window) })
+                DesktopApp(container, keys, trayAvailable, uploadRequests, incomingUploadFlow, fileEvents, onPickFiles = { DesktopShell.pickFiles(window) })
             }
         }
     }

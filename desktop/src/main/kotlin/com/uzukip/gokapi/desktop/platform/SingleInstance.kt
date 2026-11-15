@@ -14,18 +14,22 @@ import kotlin.concurrent.thread
  * Keeps one app per user. The first launch locks `instance.lock` and listens on a loopback
  * port written to `instance.port`. A later launch, for example from the app menu while the
  * window sits in the tray, finds the lock taken, asks the running app to show its window,
- * and exits.
+ * passes along any files it was started with (Explorer's Upload to Gokapi), and exits.
+ *
+ * The message is `show`, then one `upload\t<absolute path>` line per file, in UTF-8.
  */
 class SingleInstance private constructor(private val lock: FileLock, private val server: ServerSocket) : AutoCloseable {
-    /** Calls [onShow] on a background thread each time another launch asks for the window. */
-    fun listen(onShow: () -> Unit) {
+    /** Calls [onLaunch] on a background thread with the files each later launch passes along. */
+    fun listen(onLaunch: (List<File>) -> Unit) {
         thread(name = "gokapi-single-instance", isDaemon = true) {
             while (!server.isClosed) {
                 val client = runCatching { server.accept() }.getOrNull() ?: break
                 client.use { socket ->
                     socket.soTimeout = 2_000
-                    val message = runCatching { socket.getInputStream().bufferedReader().readLine() }.getOrNull()
-                    if (message == SHOW) onShow()
+                    val lines = runCatching { socket.getInputStream().bufferedReader(Charsets.UTF_8).readLines() }.getOrNull()
+                    if (lines?.firstOrNull() == SHOW) {
+                        onLaunch(lines.drop(1).filter { it.startsWith(UPLOAD) }.map { File(it.removePrefix(UPLOAD)) })
+                    }
                 }
             }
         }
@@ -38,31 +42,44 @@ class SingleInstance private constructor(private val lock: FileLock, private val
 
     companion object {
         private const val SHOW = "show"
+        private const val UPLOAD = "upload\t"
 
         /**
-         * How this launch should go: as the running app, or handed over to one already running.
-         * When the running app holds the lock but does not answer, this launch starts anyway
-         * with no guard, rather than do nothing.
+         * How this launch should go: as the running app, or handed over to one already running
+         * along with [files]. When the running app holds the lock but does not answer for a few
+         * seconds, this launch starts anyway with no guard, rather than do nothing.
          */
-        fun acquire(directory: File): Launch {
+        fun acquire(directory: File, files: List<File> = emptyList()): Launch {
             directory.mkdirs()
             val portFile = File(directory, "instance.port")
             val channel = FileChannel.open(File(directory, "instance.lock").toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
             val lock = runCatching { channel.tryLock() }.getOrNull()
             if (lock == null) {
                 channel.close()
-                return if (notifyRunning(portFile)) Launch.HandedOver else Launch.Primary(null)
+                // Explorer starts one launch per selected file at once: the winner may not have
+                // written its port yet, and the others queue on the socket's backlog.
+                repeat(HANDOVER_ATTEMPTS) { attempt ->
+                    if (notifyRunning(portFile, files)) return Launch.HandedOver
+                    if (attempt < HANDOVER_ATTEMPTS - 1) Thread.sleep(250)
+                }
+                return Launch.Primary(null)
             }
-            val server = ServerSocket(0, 4, InetAddress.getLoopbackAddress())
+            val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
             portFile.writeText(server.localPort.toString())
             return Launch.Primary(SingleInstance(lock, server))
         }
 
-        private fun notifyRunning(portFile: File): Boolean = runCatching {
+        private const val HANDOVER_ATTEMPTS = 12
+
+        private fun notifyRunning(portFile: File, files: List<File>): Boolean = runCatching {
             val port = portFile.readText().trim().toInt()
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(InetAddress.getLoopbackAddress(), port), 2_000)
-                socket.getOutputStream().write("$SHOW\n".toByteArray())
+                val message = buildString {
+                    append(SHOW).append('\n')
+                    files.forEach { append(UPLOAD).append(it.absolutePath).append('\n') }
+                }
+                socket.getOutputStream().write(message.toByteArray(Charsets.UTF_8))
             }
             true
         }.getOrDefault(false)

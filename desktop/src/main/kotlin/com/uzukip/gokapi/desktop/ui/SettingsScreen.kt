@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.uzukip.gokapi.desktop.DesktopContainer
 import com.uzukip.gokapi.desktop.data.ColorSource
 import com.uzukip.gokapi.desktop.data.ThemeMode
+import com.uzukip.gokapi.desktop.platform.ExplorerMenu
 import com.uzukip.gokapi.desktop.platform.appVersion
 import com.uzukip.gokapi.ui.components.Choice
 import com.uzukip.gokapi.ui.components.ConnectedChoices
@@ -188,9 +189,12 @@ internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, trayA
     }
     val desktop: @Composable () -> Unit = {
         GroupLabel("Desktop")
+        // Only the installed Windows app has a launcher for Explorer to run.
+        val explorerMenu = remember { ExplorerMenu.launcher != null }
+        val rows = if (explorerMenu) 2 else 1
         SegmentedGroup {
             SettingsRow(
-                corners = segmentCorners(0, 1),
+                corners = segmentCorners(0, rows),
                 icon = { IconBadge("tray-arrow-down", "#7B6A9E", 40.dp) },
                 title = "Keep running in the tray",
                 subtitle = if (trayAvailable) "Closing the window hides it to the tray. Quit from the tray menu."
@@ -203,6 +207,21 @@ internal fun SettingsScreen(container: DesktopContainer, keys: KeyActions, trayA
                     )
                 },
             )
+            if (explorerMenu) {
+                SettingsRow(
+                    corners = segmentCorners(1, rows),
+                    icon = { IconBadge("mouse-right-click-outline", "#3C7CAB", 40.dp) },
+                    title = "Show in Explorer's right-click menu",
+                    subtitle = "Upload to Gokapi, under Show more options on Windows 11. Turn off before uninstalling.",
+                    onClick = { scope.launch { container.settings.update { it.copy(explorerMenu = !it.explorerMenu) } } },
+                    trailing = {
+                        Switch(
+                            checked = settings.explorerMenu,
+                            onCheckedChange = { value -> scope.launch { container.settings.update { it.copy(explorerMenu = value) } } },
+                        )
+                    },
+                )
+            }
         }
     }
 

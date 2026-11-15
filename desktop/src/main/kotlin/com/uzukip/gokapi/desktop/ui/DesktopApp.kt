@@ -38,6 +38,7 @@ internal fun DesktopApp(
     keys: KeyActions,
     trayAvailable: Boolean,
     uploadRequests: Flow<Unit>,
+    incomingUploads: Flow<List<File>>,
     fileEvents: Flow<Unit>,
     onPickFiles: () -> List<File>,
 ) {
@@ -47,6 +48,14 @@ internal fun DesktopApp(
     var serverChanged by remember { mutableStateOf(false) }
     // The tray's Upload files… goes back to the file list, which then opens the picker.
     var uploadPending by remember { mutableStateOf(false) }
+    // Files from Explorer's Upload to Gokapi, gathered until the file list takes them.
+    var launchUploads by remember { mutableStateOf<List<File>>(emptyList()) }
+    LaunchedEffect(incomingUploads) {
+        incomingUploads.collect { added ->
+            screen = Screen.HOME
+            launchUploads = launchUploads + added
+        }
+    }
     // The new-file watcher found files; show them in the list too.
     LaunchedEffect(fileEvents) { fileEvents.collect { files.refresh() } }
     LaunchedEffect(uploadRequests) {
@@ -75,7 +84,13 @@ internal fun DesktopApp(
             Screen.HOME -> {
                 val previews by container.previewSource.collectAsState()
                 CompositionLocalProvider(LocalPreviewSource provides previews) {
-                    FilesScreen(files, keys, onPickFiles, uploadPending, onUploadHandled = { uploadPending = false }, onOpenSettings = { screen = Screen.SETTINGS })
+                    FilesScreen(
+                        files, keys, onPickFiles, uploadPending,
+                        onUploadHandled = { uploadPending = false },
+                        launchUploads = launchUploads,
+                        onLaunchUploadsHandled = { launchUploads = emptyList() },
+                        onOpenSettings = { screen = Screen.SETTINGS },
+                    )
                 }
             }
             Screen.SETTINGS -> SettingsScreen(

@@ -28,6 +28,8 @@ data class Settings(
     /** Closing the window hides it to the tray; the app quits from the tray menu. */
     val closeToTray: Boolean = true,
     val notificationMode: NotificationMode = NotificationMode.POLL,
+    /** Windows: Upload to Gokapi in Explorer's right-click menu. */
+    val explorerMenu: Boolean = true,
 )
 
 /** [Settings] in `settings.properties` under the config directory. Loaded once, written on each change. */
@@ -49,6 +51,7 @@ class SettingsStore(private val file: File) {
                 setProperty("auto_copy_link", current.autoCopyLink.toString())
                 setProperty("close_to_tray", current.closeToTray.toString())
                 setProperty("notifications", current.notificationMode.name)
+                setProperty("explorer_menu", current.explorerMenu.toString())
             }
             file.parentFile.mkdirs()
             val temporary = File(file.parentFile, file.name + ".tmp")
@@ -70,6 +73,7 @@ class SettingsStore(private val file: File) {
             autoCopyLink = p.getProperty("auto_copy_link")?.toBooleanStrictOrNull() ?: defaults.autoCopyLink,
             closeToTray = p.getProperty("close_to_tray")?.toBooleanStrictOrNull() ?: defaults.closeToTray,
             notificationMode = enumOr(p.getProperty("notifications"), defaults.notificationMode),
+            explorerMenu = p.getProperty("explorer_menu")?.toBooleanStrictOrNull() ?: defaults.explorerMenu,
         )
     }
 

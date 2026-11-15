@@ -26,6 +26,14 @@ StatusNotifierItem over D-Bus on Linux (`platform/LinuxSniTray.kt`) and AWT
 `SystemTray` on Windows. A second launch shows the running app's window
 instead of starting another (`platform/SingleInstance.kt`).
 
+On Windows, the installed app adds Upload to Gokapi to Explorer's classic
+right-click menu for files (`platform/ExplorerMenu.kt`): a static verb under
+`HKCU\Software\Classes\*\shell\GokapiUpload` that runs the jpackage
+launcher (`jpackage.app-path`) with the file. Explorer starts one launch per
+selected file (15 at most); each hands its path to the running app over the
+single-instance socket, and the paths join one upload dialog. The Settings
+toggle removes the key; the installer can't, so turn it off before uninstalling.
+
 New-file notifications (`notify/`) run while the desktop app runs, tray
 included. Every 5 min polls the file list. Instant also subscribes to an ntfy
 topic's JSON stream and checks on each message, with 15-minute polling as a

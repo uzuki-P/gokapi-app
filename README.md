@@ -93,6 +93,15 @@ service's `.env`, such as `https://<ntfy host>/gokapi-uploads`, or add a
 desktop topic URL such as `https://<ntfy host>/up<random>` to
 `ntfy-endpoints`.
 
+## Upload from Explorer (Windows)
+
+The installed desktop app adds Upload to Gokapi to Explorer's classic
+right-click menu for files. On Windows 11 it is under Show more options. Select
+up to 15 files, right-click, and choose it: the app opens, or comes back from
+the tray, with the files in its upload dialog. Settings, Desktop, Show in
+Explorer's right-click menu turns it off. The uninstaller does not remove the
+entry, so turn it off before uninstalling.
+
 ## Build and validate
 
 `mainApp` uses `com.uzukip.gokapi`. The dev flavor uses

@@ -146,6 +146,8 @@ internal fun FilesScreen(
     onPickFiles: () -> List<File>,
     uploadPending: Boolean,
     onUploadHandled: () -> Unit,
+    launchUploads: List<File>,
+    onLaunchUploadsHandled: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state by model.state.collectAsState()
@@ -180,6 +182,14 @@ internal fun FilesScreen(
         if (uploadPending) {
             onUploadHandled()
             pickUploads()
+        }
+    }
+    // Explorer's Upload to Gokapi starts one launch per file, so files can arrive while the
+    // dialog is open; they join it.
+    LaunchedEffect(launchUploads) {
+        if (launchUploads.isNotEmpty()) {
+            pendingUploads = (pendingUploads + launchUploads).distinctBy(File::getAbsolutePath)
+            onLaunchUploadsHandled()
         }
     }
     keys.handler = { key ->
